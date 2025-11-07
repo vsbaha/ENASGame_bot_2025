@@ -39,6 +39,10 @@ class Settings:
         self.max_team_name_length = 50
         self.max_player_nickname_length = 30
         self.max_channels_per_tournament = 10
+        
+        # Challonge API
+        self.challonge_api_key = os.getenv("CHALLONGE_API_KEY", "")
+        self.challonge_username = os.getenv("CHALLONGE_USERNAME", "")
 
 
 # Глобальный экземпляр настроек

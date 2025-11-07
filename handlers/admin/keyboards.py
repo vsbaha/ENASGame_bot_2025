@@ -58,20 +58,24 @@ def get_tournament_management_keyboard() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
-                text="📝 Редактировать турнир",
-                callback_data="admin:edit_tournament"
+                text="⚙️ Настройки турниров",
+                callback_data="admin:tournament_settings"
             )
         ],
         [
             InlineKeyboardButton(
-                text="🗑️ Удалить турнир",
-                callback_data="admin:delete_tournament"
+                text="🎮 Добавить игру",
+                callback_data="admin:add_game"
+            ),
+            InlineKeyboardButton(
+                text="📋 Список игр",
+                callback_data="admin:list_games"
             )
         ],
         [
             InlineKeyboardButton(
-                text="📋 Список турниров",
-                callback_data="admin:list_tournaments"
+                text="🏆 Управление форматами",
+                callback_data="admin:manage_formats"
             )
         ],
         [
@@ -448,4 +452,177 @@ def get_broadcast_cancel_keyboard() -> InlineKeyboardMarkup:
             )
         ]
     ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def get_tournament_settings_keyboard(tournaments=None) -> InlineKeyboardMarkup:
+    """Клавиатура настроек турниров с динамическим списком"""
+    keyboard = []
+    
+    # Добавляем турниры в список кнопок
+    if tournaments:
+        for tournament in tournaments[:8]:  # Максимум 8 турниров чтобы поместились
+            status_emoji = {
+                'registration': '📝',
+                'in_progress': '🏃',
+                'completed': '✅',
+                'cancelled': '❌'
+            }.get(tournament.status, '❓')
+            
+            # Ограничиваем название до 25 символов
+            name = tournament.name[:25] + "..." if len(tournament.name) > 25 else tournament.name
+            
+            keyboard.append([
+                InlineKeyboardButton(
+                    text=f"{status_emoji} {name}",
+                    callback_data=f"admin:manage_tournament_{tournament.id}"
+                )
+            ])
+    
+    # Кнопка назад
+    keyboard.append([
+        InlineKeyboardButton(
+            text="� Назад к турнирам",
+            callback_data="admin:tournaments"
+        )
+    ])
+    
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def get_tournament_action_keyboard(tournament_id: int, tournament_status: str) -> InlineKeyboardMarkup:
+    """Клавиатура действий с конкретным турниром"""
+    keyboard = []
+    
+    # Кнопки управления в зависимости от статуса
+    if tournament_status == 'registration':
+        keyboard.append([
+            InlineKeyboardButton(
+                text="🏁 Запустить турнир",
+                callback_data=f"admin:start_tournament_{tournament_id}"
+            )
+        ])
+    elif tournament_status == 'in_progress':
+        keyboard.append([
+            InlineKeyboardButton(
+                text="⏸️ Приостановить",
+                callback_data=f"admin:pause_tournament_{tournament_id}"
+            )
+        ])
+    elif tournament_status == 'paused':
+        keyboard.append([
+            InlineKeyboardButton(
+                text="▶️ Продолжить",
+                callback_data=f"admin:resume_tournament_{tournament_id}"
+            )
+        ])
+    
+    # Всегда доступные действия
+    keyboard.extend([
+        [
+            InlineKeyboardButton(
+                text="📝 Редактировать",
+                callback_data=f"admin:edit_tournament_details_{tournament_id}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="🗑️ Удалить турнир",
+                callback_data=f"admin:confirm_delete_tournament_{tournament_id}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="📊 Статистика турнира",
+                callback_data=f"admin:tournament_detailed_stats_{tournament_id}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="🔙 Назад к настройкам",
+                callback_data="admin:tournament_settings"
+            )
+        ]
+    ])
+    
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def get_game_selection_keyboard(games) -> InlineKeyboardMarkup:
+    """Клавиатура выбора игры для турнира"""
+    keyboard = []
+    
+    for game in games:
+        keyboard.append([
+            InlineKeyboardButton(
+                text=f"🎮 {game.name}",
+                callback_data=f"select_game_{game.id}"
+            )
+        ])
+    
+    keyboard.append([
+        InlineKeyboardButton(
+            text="🔙 Назад",
+            callback_data="admin:tournaments"
+        )
+    ])
+    
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def get_tournament_format_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура выбора формата турнира"""
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                text="🏆 Одиночное исключение",
+                callback_data="format_single_elimination"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="🏆🏆 Двойное исключение", 
+                callback_data="format_double_elimination"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="🔄 Круговая система",
+                callback_data="format_round_robin"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="🎯 Швейцарская система",
+                callback_data="format_swiss"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="🔙 Назад",
+                callback_data="admin:tournaments"
+            )
+        ]
+    ]
+    
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def get_confirm_tournament_creation_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура подтверждения создания турнира"""
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                text="✅ Создать турнир",
+                callback_data="confirm_create_tournament"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="❌ Отменить",
+                callback_data="cancel_create_tournament"
+            )
+        ]
+    ]
+    
     return InlineKeyboardMarkup(inline_keyboard=keyboard)

@@ -9,6 +9,7 @@ class AdminStates(StatesGroup):
     # Создание турнира
     creating_tournament_name = State()
     creating_tournament_description = State()
+    creating_tournament_logo = State()
     creating_tournament_game = State()
     creating_tournament_format = State()
     creating_tournament_max_teams = State()
@@ -16,7 +17,9 @@ class AdminStates(StatesGroup):
     creating_tournament_registration_end = State()
     creating_tournament_start_date = State()
     creating_tournament_rules = State()
+    creating_tournament_rules_file = State()
     creating_tournament_confirmation = State()
+    confirming_tournament_creation = State()
     
     # Управление турниром
     selecting_tournament_to_manage = State()
@@ -53,3 +56,31 @@ class AdminStates(StatesGroup):
     selective_broadcast_choosing_region = State()
     selective_broadcast_entering_message = State()
     selective_broadcast_adding_attachment = State()
+    
+    # Управление играми
+    adding_game_name = State()
+    adding_game_max_players = State()
+    adding_game_max_substitutes = State()
+    editing_game = State()
+    editing_game_name = State()
+    editing_game_short_name = State()
+    editing_game_max_players = State()
+    editing_game_max_substitutes = State()
+    editing_game_icon = State()
+    
+    # Редактирование турнира
+    editing_tournament_name = State()
+    editing_tournament_description = State()
+    editing_tournament_logo = State()
+    editing_tournament_game = State()
+    editing_tournament_format = State()
+    editing_tournament_max_teams = State()
+    editing_tournament_registration_start = State()
+    editing_tournament_registration_end = State()
+    editing_tournament_start_date = State()
+    editing_tournament_rules = State()
+    editing_tournament_rules_file = State()
+    
+    # Управление форматами
+    editing_format_settings = State()
+    adding_custom_format = State()

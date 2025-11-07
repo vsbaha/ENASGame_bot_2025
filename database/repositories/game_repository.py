@@ -44,6 +44,16 @@ class GameRepository:
             return await session.get(Game, game_id)
     
     @staticmethod
+    async def get_by_name(name: str) -> Optional[Game]:
+        """Получение игры по названию"""
+        async with get_session() as session:
+            session: AsyncSession
+            
+            stmt = select(Game).where(Game.name == name)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+    
+    @staticmethod
     async def get_by_short_name(short_name: str) -> Optional[Game]:
         """Получение игры по короткому названию"""
         async with get_session() as session:
@@ -56,6 +66,16 @@ class GameRepository:
     @staticmethod
     async def get_all_games() -> List[Game]:
         """Получение всех игр"""
+        async with get_session() as session:
+            session: AsyncSession
+            
+            stmt = select(Game).order_by(Game.name.asc())
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+    
+    @staticmethod
+    async def get_all_active() -> List[Game]:
+        """Получение всех активных игр"""
         async with get_session() as session:
             session: AsyncSession
             

@@ -115,7 +115,10 @@ class Tournament(Base):
     edit_deadline: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     logo_file_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     rules_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    rules_file_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # ID файла правил
+    rules_file_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Название файла правил
     required_channels: Mapped[str] = mapped_column(Text, nullable=False, default="[]")  # JSON array
+    challonge_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # ID турнира в Challonge
     created_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -123,9 +126,9 @@ class Tournament(Base):
     # Relationships
     game: Mapped["Game"] = relationship("Game", back_populates="tournaments")
     creator: Mapped["User"] = relationship("User", back_populates="created_tournaments")
-    teams: Mapped[List["Team"]] = relationship("Team", back_populates="tournament")
-    matches: Mapped[List["Match"]] = relationship("Match", back_populates="tournament")
-    bracket: Mapped[Optional["TournamentBracket"]] = relationship("TournamentBracket", back_populates="tournament", uselist=False)
+    teams: Mapped[List["Team"]] = relationship("Team", back_populates="tournament", cascade="all, delete-orphan")
+    matches: Mapped[List["Match"]] = relationship("Match", back_populates="tournament", cascade="all, delete-orphan")
+    bracket: Mapped[Optional["TournamentBracket"]] = relationship("TournamentBracket", back_populates="tournament", uselist=False, cascade="all, delete-orphan")
     
     @property
     def required_channels_list(self) -> List[str]:

@@ -27,4 +27,10 @@ def setup_admin_handlers() -> Router:
     from .broadcast import router as admin_broadcast_router
     admin_router.include_router(admin_broadcast_router)
     
+    from .games import router as admin_games_router
+    admin_router.include_router(admin_games_router)
+    
+    from .formats import router as admin_formats_router
+    admin_router.include_router(admin_formats_router)
+    
     return admin_router

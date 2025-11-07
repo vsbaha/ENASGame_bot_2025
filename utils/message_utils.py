@@ -93,3 +93,40 @@ async def safe_answer_or_edit(
         logger.debug(f"Не удалось удалить старое сообщение: {e}")
     
     return new_message
+
+
+async def safe_send_message(
+    chat_id: Union[int, str, Message],
+    text: str,
+    reply_markup: Optional[InlineKeyboardMarkup] = None,
+    parse_mode: Optional[str] = None
+) -> Optional[Message]:
+    """
+    Безопасная отправка сообщения с обработкой ошибок.
+    
+    Args:
+        chat_id: ID чата для отправки или объект Message (для получения chat_id и bot)
+        text: Текст сообщения
+        reply_markup: Клавиатура (опционально)
+        parse_mode: Режим парсинга текста (опционально)
+    
+    Returns:
+        Message: Отправленное сообщение или None при ошибке
+    """
+    try:
+        # Если передан объект Message, используем его метод answer
+        if isinstance(chat_id, Message):
+            sent_message = await chat_id.answer(
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
+            return sent_message
+        else:
+            # Это старое использование, которое не поддерживается
+            # Нужно всегда передавать Message объект
+            logger.error("safe_send_message: передайте объект Message вместо chat_id")
+            return None
+    except Exception as e:
+        logger.error(f"Ошибка при отправке сообщения: {e}")
+        return None
