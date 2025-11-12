@@ -501,12 +501,18 @@ async def edit_tournament_details_menu(callback: CallbackQuery, state: FSMContex
             ],
             [
                 InlineKeyboardButton(
-                    text="�️ Логотип",
+                    text="🖼️ Логотип",
                     callback_data=f"admin:edit_logo_{tournament_id}"
                 ),
                 InlineKeyboardButton(
-                    text="�📋 Правила",
+                    text="📋 Правила",
                     callback_data=f"admin:edit_rules_{tournament_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📢 Обязательные каналы",
+                    callback_data=f"admin:edit_required_channels_{tournament_id}"
                 )
             ],
             [

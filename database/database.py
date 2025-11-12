@@ -44,9 +44,11 @@ class DatabaseManager:
     
     async def _insert_default_data(self):
         """Вставка базовых данных"""
-        async with self.get_session() as session:
+        from sqlalchemy import select, func
+        
+        async with self.async_session() as session:
             # Проверяем, есть ли уже игры
-            result = await session.execute("SELECT COUNT(*) FROM games")
+            result = await session.execute(select(func.count(Game.id)))
             count = result.scalar()
             
             if count == 0:

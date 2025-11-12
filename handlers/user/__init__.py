@@ -8,6 +8,7 @@ from .registration import registration_router
 from .profile import profile_router
 from .tournaments import tournaments_router
 from .teams import teams_router
+from .team_registration import team_registration_router
 from .support import support_router
 from .navigation import navigation_router
 
@@ -21,6 +22,7 @@ def setup_user_handlers() -> Router:
     user_router.include_router(profile_router)
     user_router.include_router(tournaments_router)
     user_router.include_router(teams_router)
+    user_router.include_router(team_registration_router)  # Новый роутер для регистрации команд
     user_router.include_router(support_router)
     user_router.include_router(navigation_router)  # navigation должен быть последним для unknown_message
     

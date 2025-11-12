@@ -33,4 +33,13 @@ def setup_admin_handlers() -> Router:
     from .formats import router as admin_formats_router
     admin_router.include_router(admin_formats_router)
     
+    from .brackets import bracket_router
+    admin_router.include_router(bracket_router)
+    
+    from .matches import router as match_router
+    admin_router.include_router(match_router)
+    
+    from .logs import admin_logs_router
+    admin_router.include_router(admin_logs_router)
+    
     return admin_router

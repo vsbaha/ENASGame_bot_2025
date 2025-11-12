@@ -9,8 +9,8 @@ from aiogram.fsm.context import FSMContext
 
 from database.repositories import UserRepository, TournamentRepository
 from utils.message_utils import safe_edit_message
-from .states import AdminStates
-from .keyboards import get_tournament_management_keyboard, get_tournament_settings_keyboard, get_tournament_action_keyboard
+from handlers.admin.states import AdminStates
+from handlers.admin.keyboards import get_tournament_management_keyboard, get_tournament_settings_keyboard, get_tournament_action_keyboard
 
 router = Router()
 logger = logging.getLogger(__name__)

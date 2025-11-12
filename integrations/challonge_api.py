@@ -171,6 +171,92 @@ class ChallongeAPI:
         except Exception as e:
             logger.error(f"Ошибка получения URL сетки: {e}")
             return None
+    
+    async def get_participants(self, tournament_id: str) -> List[Dict[str, Any]]:
+        """Получение списка участников турнира"""
+        try:
+            endpoint = f"tournaments/{tournament_id}/participants"
+            response = await self._make_request("GET", endpoint)
+            return response if isinstance(response, list) else []
+        except Exception as e:
+            logger.error(f"Ошибка получения участников: {e}")
+            return []
+    
+    async def get_tournament(self, tournament_id: str) -> Optional[Dict[str, Any]]:
+        """Получение информации о турнире (alias для get_tournament_info)"""
+        return await self.get_tournament_info(tournament_id)
+    
+    async def get_matches(self, tournament_id: str) -> List[Dict[str, Any]]:
+        """Получение списка всех матчей турнира"""
+        try:
+            endpoint = f"tournaments/{tournament_id}/matches"
+            response = await self._make_request("GET", endpoint)
+            return response if isinstance(response, list) else []
+        except Exception as e:
+            logger.error(f"Ошибка получения матчей: {e}")
+            return []
+    
+    async def get_match(self, tournament_id: str, match_id: str) -> Optional[Dict[str, Any]]:
+        """Получение информации об одном матче"""
+        try:
+            endpoint = f"tournaments/{tournament_id}/matches/{match_id}"
+            response = await self._make_request("GET", endpoint)
+            return response.get("match")
+        except Exception as e:
+            logger.error(f"Ошибка получения матча: {e}")
+            return None
+    
+    async def update_participant_seed(
+        self, 
+        tournament_id: str, 
+        participant_id: int, 
+        new_seed: int
+    ) -> bool:
+        """Обновление seed (позиции) участника"""
+        try:
+            endpoint = f"tournaments/{tournament_id}/participants/{participant_id}"
+            data = {"participant[seed]": new_seed}
+            await self._make_request("PUT", endpoint, data)
+            logger.info(f"Обновлен seed участника {participant_id} на {new_seed}")
+            return True
+        except Exception as e:
+            logger.error(f"Ошибка обновления seed: {e}")
+            return False
+    
+    async def swap_participants(
+        self, 
+        tournament_id: str, 
+        participant1_id: int, 
+        participant2_id: int
+    ) -> bool:
+        """Обмен позициями двух участников"""
+        try:
+            # Получаем текущие seed'ы
+            participants = await self.get_participants(tournament_id)
+            
+            p1_seed = None
+            p2_seed = None
+            
+            for p in participants:
+                p_data = p.get("participant", p)
+                if p_data["id"] == participant1_id:
+                    p1_seed = p_data["seed"]
+                elif p_data["id"] == participant2_id:
+                    p2_seed = p_data["seed"]
+            
+            if p1_seed is None or p2_seed is None:
+                logger.error("Не удалось найти seed'ы участников")
+                return False
+            
+            # Меняем местами
+            success1 = await self.update_participant_seed(tournament_id, participant1_id, p2_seed)
+            success2 = await self.update_participant_seed(tournament_id, participant2_id, p1_seed)
+            
+            return success1 and success2
+            
+        except Exception as e:
+            logger.error(f"Ошибка обмена участников: {e}")
+            return False
 
 
 class ChallongeIntegration:

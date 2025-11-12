@@ -1,0 +1,611 @@
+"""
+Генератор турнирных сеток с интеграцией Challonge API
+"""
+import logging
+from aiogram import Router, F
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.fsm.context import FSMContext
+
+from database.repositories.tournament_repository import TournamentRepository
+from database.repositories.team_repository import TeamRepository
+from integrations.challonge_api import ChallongeAPI
+from config.settings import settings
+from utils.message_utils import safe_edit_message
+from handlers.admin.states import AdminStates
+
+router = Router()
+logger = logging.getLogger(__name__)
+
+
+@router.callback_query(F.data.startswith("admin:generate_bracket_"))
+async def show_bracket_generation_menu(callback: CallbackQuery, state: FSMContext):
+    """Показать меню генерации сетки"""
+    try:
+        tournament_id = int(callback.data.split("_")[-1])
+        
+        # Получаем турнир
+        tournament = await TournamentRepository.get_by_id(tournament_id)
+        
+        if not tournament:
+            await callback.answer("❌ Турнир не найден", show_alert=True)
+            return
+        
+        # Проверяем что турнир ещё не начат
+        if tournament.status != "registration":
+            await callback.answer("❌ Генерация доступна только для турниров в статусе регистрации", show_alert=True)
+            return
+        
+        # Получаем одобренные команды
+        approved_teams = await TeamRepository.get_approved_teams_by_tournament(tournament_id)
+        
+        if not approved_teams:
+            await callback.answer("❌ Нет одобренных команд для генерации сетки", show_alert=True)
+            return
+        
+        if len(approved_teams) < 2:
+            await callback.answer(f"❌ Недостаточно команд (минимум 2, сейчас {len(approved_teams)})", show_alert=True)
+            return
+        
+        # Проверяем есть ли уже Challonge турнир
+        challonge_status = "✅ Создан" if tournament.challonge_id else "❌ Не создан"
+        
+        text = f"""🎯 **Генерация турнирной сетки**
+
+**Турнир:** {tournament.name}
+**Формат:** {tournament.format}
+**Команд одобрено:** {len(approved_teams)}/{tournament.max_teams}
+**Challonge:** {challonge_status}
+
+**Шаги генерации:**
+1. Создать турнир в Challonge (если не создан)
+2. Добавить все одобренные команды
+3. Рандомизировать сиды
+4. Запустить турнир
+
+⚠️ **Внимание:** После генерации сетки турнир будет переведён в статус "В процессе" и регистрация закроется.
+
+**Готовы начать?**"""
+        
+        keyboard = []
+        
+        if tournament.challonge_id:
+            # Турнир уже есть в Challonge, можем синхронизировать
+            keyboard.append([
+                InlineKeyboardButton(
+                    text="🔄 Синхронизировать участников",
+                    callback_data=f"admin:sync_participants_{tournament_id}"
+                )
+            ])
+            keyboard.append([
+                InlineKeyboardButton(
+                    text="✏️ Редактор сетки",
+                    callback_data=f"admin:edit_bracket_{tournament_id}"
+                )
+            ])
+            keyboard.append([
+                InlineKeyboardButton(
+                    text="🚀 Запустить турнир",
+                    callback_data=f"admin:start_bracket_{tournament_id}"
+                )
+            ])
+        else:
+            # Нужно создать турнир в Challonge
+            keyboard.append([
+                InlineKeyboardButton(
+                    text="✨ Создать сетку в Challonge",
+                    callback_data=f"admin:create_challonge_{tournament_id}"
+                )
+            ])
+        
+        keyboard.append([
+            InlineKeyboardButton(
+                text="🔙 Назад",
+                callback_data=f"admin:manage_tournament_{tournament_id}"
+            )
+        ])
+        
+        await safe_edit_message(
+            callback.message, text, parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+        )
+        await callback.answer()
+        
+    except Exception as e:
+        logger.error(f"Ошибка показа меню генерации: {e}")
+        await callback.answer("❌ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("admin:create_challonge_"))
+async def create_challonge_tournament(callback: CallbackQuery, state: FSMContext):
+    """Создание турнира в Challonge и добавление участников"""
+    try:
+        tournament_id = int(callback.data.split("_")[-1])
+        
+        # Получаем турнир
+        tournament = await TournamentRepository.get_by_id(tournament_id)
+        
+        if not tournament:
+            await callback.answer("❌ Турнир не найден", show_alert=True)
+            return
+        
+        # Показываем процесс
+        text = f"""⏳ **Создание сетки в Challonge...**
+
+**Турнир:** {tournament.name}
+
+Пожалуйста, подождите...
+
+**Шаги:**
+⏳ Создание турнира...
+⏳ Добавление участников...
+⏳ Настройка параметров..."""
+        
+        await safe_edit_message(callback.message, text, parse_mode="Markdown")
+        
+        # Получаем команды
+        approved_teams = await TeamRepository.get_approved_teams_by_tournament(tournament_id)
+        
+        if len(approved_teams) < 2:
+            await callback.answer("❌ Недостаточно команд", show_alert=True)
+            return
+        
+        # Создаем API клиент
+        if not settings.challonge_api_key or not settings.challonge_username:
+            text = """❌ **Ошибка конфигурации**
+
+Challonge API не настроен.
+
+Проверьте параметры:
+• CHALLONGE_API_KEY
+• CHALLONGE_USERNAME
+
+в файле .env"""
+            
+            keyboard = [[
+                InlineKeyboardButton(
+                    text="🔙 Назад",
+                    callback_data=f"admin:generate_bracket_{tournament_id}"
+                )
+            ]]
+            
+            await safe_edit_message(
+                callback.message, text, parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+            )
+            return
+        
+        challonge = ChallongeAPI(settings.challonge_api_key, settings.challonge_username)
+        
+        # Определяем формат для Challonge
+        format_mapping = {
+            'single_elimination': 'single elimination',
+            'double_elimination': 'double elimination',
+            'round_robin': 'round robin',
+            'group_stage_playoffs': 'single elimination'  # Пока как single
+        }
+        
+        challonge_format = format_mapping.get(tournament.format, 'single elimination')
+        
+        # Создаем турнир в Challonge
+        logger.info(f"Создаём турнир {tournament.name} в Challonge...")
+        
+        challonge_tournament = await challonge.create_tournament(
+            name=tournament.name,
+            tournament_type=challonge_format,
+            description=tournament.description or "",
+            private=False
+        )
+        
+        if not challonge_tournament:
+            text = """❌ **Ошибка создания турнира в Challonge**
+
+Проверьте:
+1. API ключ корректен
+2. Username корректен
+3. Интернет соединение работает
+
+Попробуйте ещё раз."""
+            
+            keyboard = [[
+                InlineKeyboardButton(
+                    text="🔄 Попробовать снова",
+                    callback_data=f"admin:create_challonge_{tournament_id}"
+                )
+            ],[
+                InlineKeyboardButton(
+                    text="🔙 Назад",
+                    callback_data=f"admin:generate_bracket_{tournament_id}"
+                )
+            ]]
+            
+            await safe_edit_message(
+                callback.message, text, parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+            )
+            return
+        
+        # Сохраняем ID турнира Challonge
+        await TournamentRepository.update_challonge_id(tournament.id, challonge_tournament['id'])
+        
+        logger.info(f"Турнир создан в Challonge: ID={challonge_tournament['id']}")
+        
+        # Добавляем участников
+        text = f"""⏳ **Добавление участников...**
+
+**Турнир:** {tournament.name}
+**Challonge ID:** {challonge_tournament['id']}
+
+Добавлено: 0/{len(approved_teams)}"""
+        
+        await safe_edit_message(callback.message, text, parse_mode="Markdown")
+        
+        added_count = 0
+        failed_teams = []
+        
+        for team in approved_teams:
+            try:
+                participant = await challonge.add_participant(
+                    tournament_id=challonge_tournament['id'],
+                    participant_name=team.name
+                )
+                
+                if participant:
+                    added_count += 1
+                    logger.info(f"Добавлена команда: {team.name}")
+                else:
+                    failed_teams.append(team.name)
+                    logger.error(f"Не удалось добавить команду: {team.name}")
+                
+            except Exception as e:
+                failed_teams.append(team.name)
+                logger.error(f"Ошибка добавления команды {team.name}: {e}")
+        
+        # Результат
+        if failed_teams:
+            failed_list = "\n".join([f"• {name}" for name in failed_teams])
+            text = f"""⚠️ **Турнир создан с ошибками**
+
+**Турнир:** {tournament.name}
+**Challonge ID:** {challonge_tournament['id']}
+**URL:** {challonge_tournament.get('full_challonge_url', 'N/A')}
+
+**Добавлено команд:** {added_count}/{len(approved_teams)}
+
+**Не удалось добавить:**
+{failed_list}
+
+Вы можете попробовать синхронизировать участников снова или запустить турнир как есть."""
+            
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        text="🔄 Синхронизировать снова",
+                        callback_data=f"admin:sync_participants_{tournament_id}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="🚀 Запустить турнир",
+                        callback_data=f"admin:start_bracket_{tournament_id}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="🔙 Назад",
+                        callback_data=f"admin:generate_bracket_{tournament_id}"
+                    )
+                ]
+            ]
+        else:
+            text = f"""✅ **Сетка успешно создана!**
+
+**Турнир:** {tournament.name}
+**Challonge ID:** {challonge_tournament['id']}
+**URL:** {challonge_tournament.get('full_challonge_url', 'N/A')}
+
+**Добавлено команд:** {added_count}/{len(approved_teams)}
+
+Сетка готова! Теперь вы можете:
+1. Запустить турнир (сгенерирует матчи)
+2. Синхронизировать участников (если нужно)
+
+⚠️ После запуска турнира изменить участников будет нельзя!"""
+            
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        text="🚀 Запустить турнир",
+                        callback_data=f"admin:start_bracket_{tournament_id}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="🔄 Синхронизировать участников",
+                        callback_data=f"admin:sync_participants_{tournament_id}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="🔙 Назад",
+                        callback_data=f"admin:generate_bracket_{tournament_id}"
+                    )
+                ]
+            ]
+        
+        await safe_edit_message(
+            callback.message, text, parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+        )
+        
+    except Exception as e:
+        logger.error(f"Ошибка создания турнира в Challonge: {e}", exc_info=True)
+        text = f"""❌ **Критическая ошибка**
+
+{str(e)}
+
+Обратитесь к разработчику."""
+        
+        keyboard = [[
+            InlineKeyboardButton(
+                text="🔙 Назад",
+                callback_data=f"admin:generate_bracket_{tournament_id}"
+            )
+        ]]
+        
+        await safe_edit_message(
+            callback.message, text, parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+        )
+
+
+@router.callback_query(F.data.startswith("admin:sync_participants_"))
+async def sync_participants(callback: CallbackQuery, state: FSMContext):
+    """Синхронизация участников с Challonge"""
+    try:
+        tournament_id = int(callback.data.split("_")[-1])
+        
+        # Получаем турнир
+        tournament = await TournamentRepository.get_by_id(tournament_id)
+        
+        if not tournament or not tournament.challonge_id:
+            await callback.answer("❌ Турнир не найден или нет Challonge ID", show_alert=True)
+            return
+        
+        text = "⏳ Синхронизация участников с Challonge..."
+        await safe_edit_message(callback.message, text, parse_mode="Markdown")
+        
+        # Получаем команды из БД
+        approved_teams = await TeamRepository.get_approved_teams_by_tournament(tournament_id)
+        
+        # Создаем API клиент
+        challonge = ChallongeAPI(settings.challonge_api_key, settings.challonge_username)
+        
+        # Получаем текущих участников из Challonge
+        current_participants = await challonge.get_participants(tournament.challonge_id)
+        current_names = {p['participant']['name'] for p in current_participants}
+        
+        # Определяем кого нужно добавить
+        db_names = {team.name for team in approved_teams}
+        to_add = db_names - current_names
+        
+        added = 0
+        failed = []
+        
+        for team_name in to_add:
+            try:
+                participant = await challonge.add_participant(
+                    tournament_id=tournament.challonge_id,
+                    participant_name=team_name
+                )
+                if participant:
+                    added += 1
+                else:
+                    failed.append(team_name)
+            except Exception as e:
+                logger.error(f"Ошибка добавления {team_name}: {e}")
+                failed.append(team_name)
+        
+        if failed:
+            failed_list = "\n".join([f"• {name}" for name in failed])
+            text = f"""⚠️ **Синхронизация завершена с ошибками**
+
+**Добавлено:** {added}
+**Не удалось добавить:** {len(failed)}
+
+{failed_list}"""
+        else:
+            text = f"""✅ **Синхронизация завершена!**
+
+**Добавлено новых участников:** {added}
+**Всего участников:** {len(db_names)}"""
+        
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    text="🚀 Запустить турнир",
+                    callback_data=f"admin:start_bracket_{tournament_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔙 Назад",
+                    callback_data=f"admin:generate_bracket_{tournament_id}"
+                )
+            ]
+        ]
+        
+        await safe_edit_message(
+            callback.message, text, parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+        )
+        await callback.answer()
+        
+    except Exception as e:
+        logger.error(f"Ошибка синхронизации: {e}")
+        await callback.answer("❌ Ошибка синхронизации", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("admin:start_bracket_"))
+async def start_tournament_bracket(callback: CallbackQuery, state: FSMContext):
+    """Запуск турнира (генерация матчей)"""
+    try:
+        tournament_id = int(callback.data.split("_")[-1])
+        
+        # Получаем турнир
+        tournament = await TournamentRepository.get_by_id(tournament_id)
+        
+        if not tournament or not tournament.challonge_id:
+            await callback.answer("❌ Турнир не найден или нет Challonge ID", show_alert=True)
+            return
+        
+        # Показываем подтверждение
+        text = f"""⚠️ **Подтверждение запуска турнира**
+
+**Турнир:** {tournament.name}
+**Challonge ID:** {tournament.challonge_id}
+
+После запуска:
+✅ Будут сгенерированы все матчи
+✅ Турнир перейдёт в статус "В процессе"
+✅ Регистрация будет закрыта
+❌ Добавить участников будет нельзя
+
+**Вы уверены?**"""
+        
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    text="✅ Да, запустить",
+                    callback_data=f"admin:confirm_start_bracket_{tournament_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="❌ Отмена",
+                    callback_data=f"admin:generate_bracket_{tournament_id}"
+                )
+            ]
+        ]
+        
+        await safe_edit_message(
+            callback.message, text, parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+        )
+        await callback.answer()
+        
+    except Exception as e:
+        logger.error(f"Ошибка показа подтверждения: {e}")
+        await callback.answer("❌ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("admin:confirm_start_bracket_"))
+async def confirm_start_tournament_bracket(callback: CallbackQuery, state: FSMContext):
+    """Подтверждение запуска турнира"""
+    try:
+        tournament_id = int(callback.data.split("_")[-1])
+        
+        # Получаем турнир
+        tournament = await TournamentRepository.get_by_id(tournament_id)
+        
+        if not tournament or not tournament.challonge_id:
+            await callback.answer("❌ Турнир не найден", show_alert=True)
+            return
+        
+        text = "⏳ Запуск турнира в Challonge..."
+        await safe_edit_message(callback.message, text, parse_mode="Markdown")
+        
+        # Создаем API клиент
+        challonge = ChallongeAPI(settings.challonge_api_key, settings.challonge_username)
+        
+        # Запускаем турнир в Challonge
+        success = await challonge.start_tournament(tournament.challonge_id)
+        
+        if not success:
+            text = """❌ **Ошибка запуска турнира в Challonge**
+
+Возможные причины:
+1. Недостаточно участников (минимум 2)
+2. Турнир уже запущен
+3. Проблемы с API
+
+Проверьте и попробуйте снова."""
+            
+            keyboard = [[
+                InlineKeyboardButton(
+                    text="🔙 Назад",
+                    callback_data=f"admin:generate_bracket_{tournament_id}"
+                )
+            ]]
+            
+            await safe_edit_message(
+                callback.message, text, parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+            )
+            return
+        
+        # Обновляем статус турнира в БД
+        await TournamentRepository.update_status(tournament_id, 'in_progress')
+        
+        # Получаем инфо о турнире
+        tournament_info = await challonge.get_tournament(tournament.challonge_id)
+        
+        text = f"""✅ **Турнир успешно запущен!**
+
+**Турнир:** {tournament.name}
+**Статус:** В процессе
+**Challonge URL:** {tournament_info.get('full_challonge_url', 'N/A')}
+
+Сетка сгенерирована! Теперь вы можете:
+• Управлять матчами
+• Вводить результаты
+• Отслеживать прогресс
+
+Удачного турнира! 🏆"""
+        
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    text="👁️ Посмотреть сетку",
+                    url=tournament_info.get('full_challonge_url', 'https://challonge.com')
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🎮 Управление матчами",
+                    callback_data=f"admin:manage_matches_{tournament_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔙 К турниру",
+                    callback_data=f"admin:manage_tournament_{tournament_id}"
+                )
+            ]
+        ]
+        
+        await safe_edit_message(
+            callback.message, text, parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+        )
+        
+        logger.info(f"Турнир {tournament.name} успешно запущен!")
+        
+    except Exception as e:
+        logger.error(f"Ошибка запуска турнира: {e}", exc_info=True)
+        text = f"""❌ **Критическая ошибка**
+
+{str(e)}
+
+Обратитесь к разработчику."""
+        
+        keyboard = [[
+            InlineKeyboardButton(
+                text="🔙 Назад",
+                callback_data=f"admin:generate_bracket_{tournament_id}"
+            )
+        ]]
+        
+        await safe_edit_message(
+            callback.message, text, parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+        )

@@ -203,6 +203,31 @@ class TeamRepository:
             return result.scalar() or 0
     
     @staticmethod
+    async def get_approved_teams_by_tournament(tournament_id: int) -> List[Team]:
+        """Получение одобренных команд турнира"""
+        async with get_session() as session:
+            session: AsyncSession
+            
+            stmt = (
+                select(Team)
+                .options(
+                    selectinload(Team.players),
+                    selectinload(Team.captain),
+                    selectinload(Team.tournament)
+                )
+                .where(
+                    and_(
+                        Team.tournament_id == tournament_id,
+                        Team.status == TeamStatus.APPROVED.value
+                    )
+                )
+                .order_by(Team.created_at.asc())
+            )
+            
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+    
+    @staticmethod
     async def get_pending_teams() -> List[Team]:
         """Получение команд ожидающих модерации"""
         async with get_session() as session:

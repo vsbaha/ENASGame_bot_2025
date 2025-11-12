@@ -39,7 +39,13 @@ def get_admin_main_keyboard() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
-                text="🔙 Назад в главное меню",
+                text="� Журнал действий",
+                callback_data="admin:view_logs"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="�🔙 Назад в главное меню",
                 callback_data="main_menu"
             )
         ]
@@ -514,6 +520,24 @@ def get_tournament_action_keyboard(tournament_id: int, tournament_status: str) -
             InlineKeyboardButton(
                 text="▶️ Продолжить",
                 callback_data=f"admin:resume_tournament_{tournament_id}"
+            )
+        ])
+    
+    # Генерация сетки (только для регистрации)
+    if tournament_status == 'registration':
+        keyboard.append([
+            InlineKeyboardButton(
+                text="🎯 Генерация сетки",
+                callback_data=f"admin:generate_bracket_{tournament_id}"
+            )
+        ])
+    
+    # Управление матчами (только для активных турниров)
+    if tournament_status in ['in_progress', 'paused']:
+        keyboard.append([
+            InlineKeyboardButton(
+                text="🎮 Управление матчами",
+                callback_data=f"admin:manage_matches_{tournament_id}"
             )
         ])
     

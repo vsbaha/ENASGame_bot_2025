@@ -447,7 +447,7 @@ async def skip_tournament_rules(callback: CallbackQuery, state: FSMContext):
         tournament_rules_file_name="",
         tournament_rules_file_size=0
     )
-    await show_tournament_confirmation(callback, state)
+    await show_required_channels_prompt(callback, state)
 
 
 @router.message(StateFilter(AdminStates.creating_tournament_rules))
@@ -472,8 +472,240 @@ async def process_tournament_rules(message: Message, state: FSMContext):
     # Сохраняем правила в состояние
     await state.update_data(tournament_rules=rules)
     
-    # Переходим к подтверждению
-    await show_tournament_confirmation_as_message(message, state)
+    # Переходим к обязательным каналам
+    await show_required_channels_prompt_as_message(message, state)
+
+
+# ========== ОБЯЗАТЕЛЬНЫЕ КАНАЛЫ ==========
+
+async def show_required_channels_prompt(callback: CallbackQuery, state: FSMContext):
+    """Показ запроса на добавление обязательных каналов (через callback)"""
+    data = await state.get_data()
+    channels = data.get('required_channels', [])
+    
+    if channels:
+        channels_list = "\n".join([f"• @{ch}" for ch in channels])
+        text = f"""📢 **Обязательные каналы** ({len(channels)})
+
+**Текущие каналы:**
+{channels_list}
+
+Добавьте username канала (без @) или пропустите этот шаг.
+
+**Формат:** channelname
+
+**Пример:** enasgame_official
+
+Пользователи должны быть подписаны на эти каналы для регистрации команды."""
+    else:
+        text = """📢 **Обязательные каналы** (опционально)
+
+Вы можете добавить обязательные каналы для подписки.
+
+Пользователи должны быть подписаны на эти каналы для регистрации команды.
+
+**Формат:** channelname (без @)
+
+**Пример:** enasgame_official
+
+Или пропустите этот шаг."""
+    
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                text="🗑️ Очистить список" if channels else "⏭️ Пропустить",
+                callback_data="admin:skip_channels" if not channels else "admin:clear_channels"
+            )
+        ]
+    ]
+    
+    if channels:
+        keyboard.insert(0, [
+            InlineKeyboardButton(
+                text="✅ Завершить добавление",
+                callback_data="admin:finish_channels"
+            )
+        ])
+    
+    keyboard.append([
+        InlineKeyboardButton(
+            text="❌ Отменить создание",
+            callback_data="admin:cancel_tournament_creation"
+        )
+    ])
+    
+    await safe_edit_message(
+        callback.message, text, parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+    )
+    await state.set_state(AdminStates.creating_tournament_required_channels)
+    await callback.answer()
+
+
+async def show_required_channels_prompt_as_message(message: Message, state: FSMContext):
+    """Показ запроса на добавление обязательных каналов (через message)"""
+    data = await state.get_data()
+    channels = data.get('required_channels', [])
+    
+    if channels:
+        channels_list = "\n".join([f"• @{ch}" for ch in channels])
+        text = f"""📢 **Обязательные каналы** ({len(channels)})
+
+**Текущие каналы:**
+{channels_list}
+
+Добавьте username канала (без @) или пропустите этот шаг.
+
+**Формат:** channelname
+
+**Пример:** enasgame_official"""
+    else:
+        text = """📢 **Обязательные каналы** (опционально)
+
+Вы можете добавить обязательные каналы для подписки.
+
+Пользователи должны быть подписаны на эти каналы для регистрации команды.
+
+**Формат:** channelname (без @)
+
+**Пример:** enasgame_official
+
+Или пропустите этот шаг."""
+    
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                text="🗑️ Очистить список" if channels else "⏭️ Пропустить",
+                callback_data="admin:skip_channels" if not channels else "admin:clear_channels"
+            )
+        ]
+    ]
+    
+    if channels:
+        keyboard.insert(0, [
+            InlineKeyboardButton(
+                text="✅ Завершить добавление",
+                callback_data="admin:finish_channels"
+            )
+        ])
+    
+    keyboard.append([
+        InlineKeyboardButton(
+            text="❌ Отменить создание",
+            callback_data="admin:cancel_tournament_creation"
+        )
+    ])
+    
+    await message.answer(
+        text, parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+    )
+    await state.set_state(AdminStates.creating_tournament_required_channels)
+
+
+@router.callback_query(F.data == "admin:skip_channels")
+async def skip_required_channels(callback: CallbackQuery, state: FSMContext):
+    """Пропуск обязательных каналов"""
+    await state.update_data(required_channels=[])
+    await show_tournament_confirmation(callback, state)
+
+
+@router.callback_query(F.data == "admin:clear_channels")
+async def clear_required_channels(callback: CallbackQuery, state: FSMContext):
+    """Очистка списка каналов"""
+    await state.update_data(required_channels=[])
+    await callback.answer("✅ Список очищен")
+    await show_required_channels_prompt(callback, state)
+
+
+@router.callback_query(F.data == "admin:finish_channels")
+async def finish_adding_channels(callback: CallbackQuery, state: FSMContext):
+    """Завершение добавления каналов"""
+    data = await state.get_data()
+    channels = data.get('required_channels', [])
+    
+    if not channels:
+        await callback.answer("❌ Добавьте хотя бы один канал или пропустите", show_alert=True)
+        return
+    
+    await show_tournament_confirmation(callback, state)
+
+
+@router.message(StateFilter(AdminStates.creating_tournament_required_channels))
+async def process_required_channel(message: Message, state: FSMContext):
+    """Обработка добавления обязательного канала"""
+    if not message.text:
+        await message.answer("❌ Пожалуйста, введите username канала.")
+        return
+    
+    channel_username = message.text.strip().replace("@", "")
+    
+    # Валидация
+    if len(channel_username) < 5:
+        await message.answer("❌ Username канала слишком короткий (минимум 5 символов).")
+        return
+    
+    if len(channel_username) > 32:
+        await message.answer("❌ Username канала слишком длинный (максимум 32 символа).")
+        return
+    
+    # Проверяем что username содержит только разрешенные символы
+    import re
+    if not re.match(r'^[a-zA-Z0-9_]+$', channel_username):
+        await message.answer("❌ Username может содержать только буквы, цифры и подчеркивания.")
+        return
+    
+    try:
+        data = await state.get_data()
+        channels = data.get('required_channels', [])
+        
+        # Проверка дубликатов
+        if channel_username.lower() in [ch.lower() for ch in channels]:
+            await message.answer(f"❌ Канал @{channel_username} уже добавлен.")
+            return
+        
+        # Добавляем канал
+        channels.append(channel_username)
+        await state.update_data(required_channels=channels)
+        
+        channels_list = "\n".join([f"• @{ch}" for ch in channels])
+        
+        text = f"""✅ **Канал добавлен!**
+
+**Обязательные каналы** ({len(channels)}):
+{channels_list}
+
+Добавьте ещё каналы или завершите."""
+        
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    text="✅ Завершить добавление",
+                    callback_data="admin:finish_channels"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🗑️ Очистить список",
+                    callback_data="admin:clear_channels"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="❌ Отменить создание",
+                    callback_data="admin:cancel_tournament_creation"
+                )
+            ]
+        ]
+        
+        await message.answer(
+            text, parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+        )
+        
+    except Exception as e:
+        logger.error(f"Ошибка добавления канала: {e}")
+        await message.answer("❌ Ошибка добавления канала.")
 
 
 async def show_tournament_confirmation(callback: CallbackQuery, state: FSMContext):
@@ -485,7 +717,14 @@ async def show_tournament_confirmation(callback: CallbackQuery, state: FSMContex
     reg_end = datetime.fromisoformat(data.get('registration_end_date', ''))
     tournament_start = datetime.fromisoformat(data.get('tournament_start_date', ''))
     
-    text = f"""📋 **Подтверждение создания турнира**
+    # Форматируем обязательные каналы
+    required_channels = data.get('required_channels', [])
+    channels_text = ""
+    if required_channels:
+        channels_list = "\n".join([f"• @{ch}" for ch in required_channels])
+        channels_text = f"\n\n**� Обязательные каналы** ({len(required_channels)}):\n{channels_list}"
+    
+    text = f"""�📋 **Подтверждение создания турнира**
 
 **📝 Название:** {data.get('tournament_name', '')}
 **📄 Описание:** {data.get('tournament_description', '')[:100]}{"..." if len(data.get('tournament_description', '')) > 100 else ""}
@@ -498,7 +737,7 @@ async def show_tournament_confirmation(callback: CallbackQuery, state: FSMContex
 🔴 Окончание регистрации: {reg_end.strftime("%d.%m.%Y %H:%M")}
 🏁 Начало турнира: {tournament_start.strftime("%d.%m.%Y %H:%M")}
 
-**📋 Правила:** {"Не указаны" if not data.get('tournament_rules', '') else f"{data.get('tournament_rules', '')[:50]}..."}
+**📋 Правила:** {"Не указаны" if not data.get('tournament_rules', '') else f"{data.get('tournament_rules', '')[:50]}..."}{channels_text}
 
 ⚠️ После создания турнир будет автоматически создан в Challonge"""
     
@@ -540,7 +779,14 @@ async def show_tournament_confirmation_as_message(message: Message, state: FSMCo
     reg_end = datetime.fromisoformat(data.get('registration_end_date', ''))
     tournament_start = datetime.fromisoformat(data.get('tournament_start_date', ''))
     
-    text = f"""📋 **Подтверждение создания турнира**
+    # Форматируем обязательные каналы
+    required_channels = data.get('required_channels', [])
+    channels_text = ""
+    if required_channels:
+        channels_list = "\n".join([f"• @{ch}" for ch in required_channels])
+        channels_text = f"\n\n**� Обязательные каналы** ({len(required_channels)}):\n{channels_list}"
+    
+    text = f"""�📋 **Подтверждение создания турнира**
 
 **📝 Название:** {data.get('tournament_name', '')}
 **📄 Описание:** {data.get('tournament_description', '')[:100]}{"..." if len(data.get('tournament_description', '')) > 100 else ""}
@@ -553,7 +799,7 @@ async def show_tournament_confirmation_as_message(message: Message, state: FSMCo
 🔴 Окончание регистрации: {reg_end.strftime("%d.%m.%Y %H:%M")}
 🏁 Начало турнира: {tournament_start.strftime("%d.%m.%Y %H:%M")}
 
-**📋 Правила:** {"Не указаны" if not data.get('tournament_rules', '') else f"{data.get('tournament_rules', '')[:50]}..."}
+**📋 Правила:** {"Не указаны" if not data.get('tournament_rules', '') else f"{data.get('tournament_rules', '')[:50]}..."}{channels_text}
 
 ⚠️ После создания турнир будет автоматически создан в Challonge"""
     
@@ -645,7 +891,7 @@ async def confirm_create_tournament(callback: CallbackQuery, state: FSMContext):
             tournament_start=tournament_start_datetime,
             edit_deadline=edit_deadline,
             rules_text=data.get('tournament_rules', ''),
-            required_channels=[],  # Пока пустой список
+            required_channels=data.get('required_channels', []),  # Сохраняем обязательные каналы
             created_by=callback.from_user.id,  # ID админа
             rules_file_id=data.get('tournament_rules_file_id'),
             rules_file_name=data.get('tournament_rules_file_name')

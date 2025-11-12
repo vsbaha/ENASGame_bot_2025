@@ -2,6 +2,7 @@ from typing import Optional, List, Dict
 from datetime import datetime, timedelta
 from sqlalchemy import select, update, func, and_, or_, desc, cast, DATE
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
 from database.db_manager import get_session
 from database.models import User, UserRole
@@ -38,10 +39,14 @@ class UserRepository:
             )
             
             session.add(user)
-            await session.commit()
-            await session.refresh(user)
-            
-            return user
+            try:
+                await session.commit()
+                await session.refresh(user)
+                return user
+            except IntegrityError:
+                await session.rollback()
+                # Пользователь уже существует, возвращаем существующую запись
+                return await UserRepository.get_by_telegram_id(telegram_id)
     
     @staticmethod
     async def get_by_telegram_id(telegram_id: int) -> Optional[User]:
@@ -183,6 +188,11 @@ class UserRepository:
             stmt = select(User).where(User.role == UserRole.ADMIN.value)
             result = await session.execute(stmt)
             return list(result.scalars().all())
+    
+    @staticmethod
+    async def get_all_admins() -> List[User]:
+        """Алиас для get_admins - получение списка администраторов"""
+        return await UserRepository.get_admins()
     
     @staticmethod
     async def set_admin_role(telegram_id: int, is_admin: bool = True) -> bool:

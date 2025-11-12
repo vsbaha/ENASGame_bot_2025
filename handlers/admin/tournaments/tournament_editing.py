@@ -270,3 +270,300 @@ async def edit_tournament_dates_start(callback: CallbackQuery, state: FSMContext
 
 
 # Обработчики для отдельных дат можно добавить позже
+
+
+@router.callback_query(F.data.startswith("admin:edit_required_channels_"))
+async def edit_required_channels_start(callback: CallbackQuery, state: FSMContext):
+    """Начать редактирование обязательных каналов"""
+    try:
+        tournament_id = int(callback.data.split("_")[-1])
+        
+        tournament = await TournamentRepository.get_by_id(tournament_id)
+        if not tournament:
+            await callback.answer("❌ Турнир не найден", show_alert=True)
+            return
+        
+        await state.update_data(editing_tournament_id=tournament_id)
+        
+        # Получаем текущие каналы
+        channels = tournament.required_channels_list
+        
+        text = f"""📢 **Редактирование обязательных каналов**
+
+**Турнир:** {tournament.name}
+
+**Текущие каналы:** {len(channels)}
+"""
+        
+        if channels:
+            text += "\n"
+            for i, channel in enumerate(channels, 1):
+                text += f"{i}. {channel}\n"
+        else:
+            text += "\n_Нет обязательных каналов_\n"
+        
+        text += "\nВыберите действие:"
+        
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    text="➕ Добавить канал",
+                    callback_data=f"admin:add_required_channel_{tournament_id}"
+                )
+            ]
+        ]
+        
+        # Если есть каналы, показываем кнопки удаления
+        if channels:
+            for i, channel in enumerate(channels):
+                keyboard.append([
+                    InlineKeyboardButton(
+                        text=f"❌ Удалить: {channel}",
+                        callback_data=f"admin:remove_channel_{tournament_id}_{i}"
+                    )
+                ])
+            
+            keyboard.append([
+                InlineKeyboardButton(
+                    text="🗑️ Очистить все",
+                    callback_data=f"admin:clear_all_channels_{tournament_id}"
+                )
+            ])
+        
+        keyboard.append([
+            InlineKeyboardButton(
+                text="🔙 Назад",
+                callback_data=f"admin:edit_tournament_details_{tournament_id}"
+            )
+        ])
+        
+        await safe_edit_message(
+            callback.message, text, parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+        )
+        await callback.answer()
+        
+    except Exception as e:
+        logger.error(f"Ошибка редактирования каналов: {e}")
+        await callback.answer("❌ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("admin:add_required_channel_"))
+async def add_required_channel_prompt(callback: CallbackQuery, state: FSMContext):
+    """Запрос на добавление канала"""
+    try:
+        tournament_id = int(callback.data.split("_")[-1])
+        
+        tournament = await TournamentRepository.get_by_id(tournament_id)
+        if not tournament:
+            await callback.answer("❌ Турнир не найден", show_alert=True)
+            return
+        
+        await state.update_data(editing_tournament_id=tournament_id)
+        await state.set_state(AdminStates.editing_tournament_required_channels)
+        
+        text = f"""➕ **Добавление канала**
+
+**Турнир:** {tournament.name}
+
+Отправьте ссылку на канал или username:
+
+**Примеры:**
+• @channel_name
+• https://t.me/channel_name
+• t.me/channel_name
+
+Или отправьте "отмена" для отмены."""
+        
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    text="❌ Отмена",
+                    callback_data=f"admin:edit_required_channels_{tournament_id}"
+                )
+            ]
+        ]
+        
+        await safe_edit_message(
+            callback.message, text, parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+        )
+        await callback.answer()
+        
+    except Exception as e:
+        logger.error(f"Ошибка запроса добавления канала: {e}")
+        await callback.answer("❌ Ошибка", show_alert=True)
+
+
+@router.message(StateFilter(AdminStates.editing_tournament_required_channels))
+async def process_add_required_channel(message: Message, state: FSMContext):
+    """Обработка добавления канала"""
+    try:
+        data = await state.get_data()
+        tournament_id = data.get("editing_tournament_id")
+        
+        if not tournament_id:
+            await message.answer("❌ Ошибка: турнир не найден")
+            await state.clear()
+            return
+        
+        # Проверка на отмену
+        if message.text.lower() in ['отмена', 'cancel']:
+            await state.clear()
+            await message.answer("❌ Добавление канала отменено")
+            return
+        
+        channel = message.text.strip()
+        
+        # Валидация формата канала
+        if not (channel.startswith('@') or 't.me/' in channel or 'https://t.me/' in channel):
+            await message.answer(
+                "⚠️ Неверный формат канала!\n\n"
+                "Используйте:\n"
+                "• @channel_name\n"
+                "• https://t.me/channel_name\n"
+                "• t.me/channel_name"
+            )
+            return
+        
+        # Нормализация формата
+        if 'https://t.me/' in channel:
+            channel = '@' + channel.split('/')[-1]
+        elif 't.me/' in channel:
+            channel = '@' + channel.split('/')[-1]
+        
+        tournament = await TournamentRepository.get_by_id(tournament_id)
+        if not tournament:
+            await message.answer("❌ Турнир не найден")
+            await state.clear()
+            return
+        
+        # Получаем текущие каналы
+        current_channels = tournament.required_channels_list
+        
+        # Проверка на дубликат
+        if channel in current_channels:
+            await message.answer(f"⚠️ Канал {channel} уже добавлен!")
+            return
+        
+        # Добавляем канал
+        current_channels.append(channel)
+        
+        # Обновляем в БД
+        success = await TournamentRepository.update_required_channels(
+            tournament_id, 
+            current_channels
+        )
+        
+        if success:
+            await message.answer(f"✅ Канал {channel} добавлен!")
+            await state.clear()
+            
+            # Показываем обновленный список
+            text = f"""📢 **Обязательные каналы обновлены**
+
+**Турнир:** {tournament.name}
+**Всего каналов:** {len(current_channels)}
+
+"""
+            for i, ch in enumerate(current_channels, 1):
+                text += f"{i}. {ch}\n"
+            
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        text="➕ Добавить ещё",
+                        callback_data=f"admin:add_required_channel_{tournament_id}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="✏️ Редактировать",
+                        callback_data=f"admin:edit_required_channels_{tournament_id}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="🔙 Назад",
+                        callback_data=f"admin:edit_tournament_details_{tournament_id}"
+                    )
+                ]
+            ]
+            
+            await message.answer(
+                text, 
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+            )
+        else:
+            await message.answer("❌ Ошибка сохранения канала")
+            await state.clear()
+        
+    except Exception as e:
+        logger.error(f"Ошибка обработки добавления канала: {e}")
+        await message.answer(f"❌ Ошибка: {str(e)}")
+        await state.clear()
+
+
+@router.callback_query(F.data.startswith("admin:remove_channel_"))
+async def remove_required_channel(callback: CallbackQuery, state: FSMContext):
+    """Удаление канала"""
+    try:
+        parts = callback.data.split("_")
+        tournament_id = int(parts[-2])
+        channel_index = int(parts[-1])
+        
+        tournament = await TournamentRepository.get_by_id(tournament_id)
+        if not tournament:
+            await callback.answer("❌ Турнир не найден", show_alert=True)
+            return
+        
+        current_channels = tournament.required_channels_list
+        
+        if 0 <= channel_index < len(current_channels):
+            removed_channel = current_channels.pop(channel_index)
+            
+            # Обновляем в БД
+            success = await TournamentRepository.update_required_channels(
+                tournament_id, 
+                current_channels
+            )
+            
+            if success:
+                await callback.answer(f"✅ Канал {removed_channel} удален", show_alert=True)
+                # Обновляем отображение
+                callback.data = f"admin:edit_required_channels_{tournament_id}"
+                await edit_required_channels_start(callback, state)
+            else:
+                await callback.answer("❌ Ошибка удаления", show_alert=True)
+        else:
+            await callback.answer("❌ Канал не найден", show_alert=True)
+        
+    except Exception as e:
+        logger.error(f"Ошибка удаления канала: {e}")
+        await callback.answer("❌ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("admin:clear_all_channels_"))
+async def clear_all_channels(callback: CallbackQuery, state: FSMContext):
+    """Очистка всех каналов"""
+    try:
+        tournament_id = int(callback.data.split("_")[-1])
+        
+        # Обновляем в БД
+        success = await TournamentRepository.update_required_channels(
+            tournament_id, 
+            []
+        )
+        
+        if success:
+            await callback.answer("✅ Все каналы удалены", show_alert=True)
+            # Обновляем отображение
+            callback.data = f"admin:edit_required_channels_{tournament_id}"
+            await edit_required_channels_start(callback, state)
+        else:
+            await callback.answer("❌ Ошибка очистки", show_alert=True)
+        
+    except Exception as e:
+        logger.error(f"Ошибка очистки каналов: {e}")
+        await callback.answer("❌ Ошибка", show_alert=True)

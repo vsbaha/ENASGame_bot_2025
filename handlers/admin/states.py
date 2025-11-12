@@ -18,6 +18,7 @@ class AdminStates(StatesGroup):
     creating_tournament_start_date = State()
     creating_tournament_rules = State()
     creating_tournament_rules_file = State()
+    creating_tournament_required_channels = State()  # Новое состояние
     creating_tournament_confirmation = State()
     confirming_tournament_creation = State()
     
@@ -80,7 +81,15 @@ class AdminStates(StatesGroup):
     editing_tournament_start_date = State()
     editing_tournament_rules = State()
     editing_tournament_rules_file = State()
+    editing_tournament_required_channels = State()  # Новое состояние
     
     # Управление форматами
     editing_format_settings = State()
     adding_custom_format = State()
+    
+    # Управление матчами
+    entering_match_score = State()
+    entering_team1_score = State()
+    entering_team2_score = State()
+    confirming_match_result = State()
+    editing_match_details = State()

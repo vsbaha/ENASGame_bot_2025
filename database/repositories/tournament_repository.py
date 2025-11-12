@@ -946,3 +946,17 @@ class TournamentRepository:
             if tournament and tournament.logo_file_id:
                 return tournament.logo_file_id
             return None
+
+    @staticmethod
+    async def update_required_channels(tournament_id: int, channels: List[str]) -> bool:
+        """Обновление списка обязательных каналов"""
+        import json
+        async with get_session() as session:
+            session: AsyncSession
+            
+            tournament = await session.get(Tournament, tournament_id)
+            if tournament:
+                tournament.required_channels = json.dumps(channels)
+                await session.commit()
+                return True
+            return False
