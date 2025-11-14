@@ -32,7 +32,7 @@ async def is_admin(user_id: int) -> bool:
 async def admin_panel_command(message: Message, state: FSMContext):
     """Команда входа в админ-панель"""
     if not await is_admin(message.from_user.id):
-        await message.answer("❌ У вас нет прав доступа к админ-панели", parse_mode="Markdown")
+        await message.answer("❌ У вас нет прав доступа к админ-панели")
         return
     
     await state.clear()
@@ -45,7 +45,7 @@ async def admin_panel_command(message: Message, state: FSMContext):
         tournaments_count = await TournamentRepository.get_total_count()
         teams_count = await TeamRepository.get_total_count()
         
-        text = f"""🛡️ Панель администратора
+        text = f"""🛡️ <b>Панель администратора</b>
 
 Добро пожаловать в админ-панель!
 Выберите раздел для управления:
@@ -56,7 +56,7 @@ async def admin_panel_command(message: Message, state: FSMContext):
 """
     except Exception as e:
         logger.error(f"Ошибка получения статистики: {e}")
-        text = """🛡️ Панель администратора
+        text = """🛡️ <b>Панель администратора</b>
 
 Добро пожаловать в админ-панель!
 Выберите раздел для управления:
@@ -69,7 +69,7 @@ async def admin_panel_command(message: Message, state: FSMContext):
     await message.answer(
         text, 
         reply_markup=get_admin_main_keyboard(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 @router.callback_query(F.data == "admin:main")
@@ -89,7 +89,7 @@ async def admin_main_menu(callback: CallbackQuery, state: FSMContext):
         tournaments_count = await TournamentRepository.get_total_count()
         teams_count = await TeamRepository.get_total_count()
         
-        text = f"""🛡️ Панель администратора
+        text = f"""🛡️ <b>Панель администратора</b>
 
 Добро пожаловать в админ-панель!
 Выберите раздел для управления:
@@ -100,7 +100,7 @@ async def admin_main_menu(callback: CallbackQuery, state: FSMContext):
 """
     except Exception as e:
         logger.error(f"Ошибка получения статистики: {e}")
-        text = """🛡️ Панель администратора
+        text = """🛡️ <b>Панель администратора</b>
 
 Добро пожаловать в админ-панель!
 Выберите раздел для управления:
@@ -113,6 +113,6 @@ async def admin_main_menu(callback: CallbackQuery, state: FSMContext):
     await safe_edit_message(
         callback.message, text,
         reply_markup=get_admin_main_keyboard(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
     await callback.answer()

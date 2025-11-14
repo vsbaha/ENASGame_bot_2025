@@ -9,6 +9,7 @@ from aiogram.fsm.context import FSMContext
 
 from database.repositories import TournamentRepository, GameRepository
 from utils.message_utils import safe_edit_message, safe_send_message
+from utils.datetime_utils import format_datetime_for_user
 from ..states import AdminStates
 from ..keyboards import get_game_selection_keyboard, get_tournament_format_keyboard, get_confirm_tournament_creation_keyboard
 
@@ -72,16 +73,8 @@ async def process_tournament_name(message: Message, state: FSMContext):
     # Сохраняем название
     await state.update_data(tournament_name=tournament_name)
     
-    text = """📝 **Введите описание турнира:**
-
-*Опишите правила, призы, особенности турнира*
-*Можно пропустить, нажав /skip*"""
-    
-    await safe_send_message(
-        message, text, parse_mode="Markdown"
-    )
-    
-    await state.set_state(AdminStates.creating_tournament_description)
+    # Переходим к загрузке логотипа
+    await proceed_to_logo_upload(message, state)
 
 
 @router.message(AdminStates.creating_tournament_description)
@@ -186,8 +179,8 @@ async def process_tournament_rules_file(message: Message, state: FSMContext):
         parse_mode="Markdown"
     )
     
-    # Переходим к загрузке логотипа
-    await proceed_to_logo_upload(message, state)
+    # Переходим к выбору игры
+    await proceed_to_game_selection(message, state)
 
 
 async def proceed_to_logo_upload(message: Message, state: FSMContext):
@@ -215,7 +208,7 @@ async def process_tournament_logo(message: Message, state: FSMContext):
     # Проверка на пропуск
     if message.text and message.text.strip().lower() == '/skip':
         await state.update_data(tournament_logo_file_id=None)
-        await proceed_to_game_selection(message, state)
+        await proceed_to_description(message, state)
         return
     
     # Проверяем наличие фото
@@ -249,8 +242,44 @@ async def process_tournament_logo(message: Message, state: FSMContext):
         parse_mode="Markdown"
     )
     
-    # Переходим к выбору игры
-    await proceed_to_game_selection(message, state)
+    # Переходим к описанию
+    await proceed_to_description(message, state)
+
+
+async def proceed_to_description(message: Message, state: FSMContext):
+    """Переход к вводу описания турнира"""
+    text = """📝 **Введите описание турнира:**
+
+*Опишите правила, призы, особенности турнира*
+*Можно пропустить, нажав /skip*"""
+    
+    await safe_send_message(
+        message, text, parse_mode="Markdown"
+    )
+    
+    await state.set_state(AdminStates.creating_tournament_description)
+
+
+async def proceed_to_dates(message: Message, state: FSMContext):
+    """Переход к вводу дат турнира"""
+    data = await state.get_data()
+    tournament_name = data.get('tournament_name', '')
+    
+    text = f"""📅 **Шаг 6.1: Дата начала регистрации**
+
+**Турнир:** {tournament_name}
+
+Введите дату начала регистрации в UTC:
+
+▪️ Формат: ДД.ММ.ГГГГ ЧЧ:ММ
+▪️ Пример: 05.12.2025 10:00
+▪️ ⏰ Время UTC (GMT+0)"""
+    
+    await safe_send_message(
+        message, text, parse_mode="Markdown"
+    )
+    
+    await state.set_state(AdminStates.creating_tournament_registration_start)
 
 
 async def proceed_to_game_selection(message: Message, state: FSMContext):
@@ -377,16 +406,8 @@ async def process_tournament_max_teams(message: Message, state: FSMContext):
         # Сохраняем количество команд
         await state.update_data(tournament_max_teams=max_teams)
         
-        text = """📅 **Введите дату начала регистрации:**
-
-*Формат: ДД.ММ.ГГГГ ЧЧ:ММ*
-*Например: 15.03.2024 10:00*"""
-        
-        await safe_send_message(
-            message, text, parse_mode="Markdown"
-        )
-        
-        await state.set_state(AdminStates.creating_tournament_registration_start)
+        # Переходим к датам турнира
+        await proceed_to_dates(message, state)
         
     except ValueError:
         await safe_send_message(
@@ -416,10 +437,11 @@ async def process_tournament_registration_start(message: Message, state: FSMCont
         # Сохраняем дату
         await state.update_data(tournament_registration_start=registration_start)
         
-        text = """📅 **Введите дату окончания регистрации:**
+        text = """📅 **Введите дату окончания регистрации в UTC:**
 
 *Формат: ДД.ММ.ГГГГ ЧЧ:ММ*
-*Должна быть позже начала регистрации*"""
+*Должна быть позже начала регистрации*
+*⏰ Время UTC (GMT+0)*"""
         
         await safe_send_message(
             message, text, parse_mode="Markdown"
@@ -459,10 +481,11 @@ async def process_tournament_registration_end(message: Message, state: FSMContex
         # Сохраняем дату
         await state.update_data(tournament_registration_end=registration_end)
         
-        text = """📅 **Введите дату начала турнира:**
+        text = """📅 **Введите дату начала турнира в UTC:**
 
 *Формат: ДД.ММ.ГГГГ ЧЧ:ММ*
-*Должна быть после окончания регистрации*"""
+*Должна быть после окончания регистрации*
+*⏰ Время UTC (GMT+0)*"""
         
         await safe_send_message(
             message, text, parse_mode="Markdown"
@@ -544,9 +567,9 @@ async def show_tournament_confirmation(message: Message, state: FSMContext):
 🏆 **Формат:** {format_names.get(data['tournament_format'], data['tournament_format'])}
 👥 **Макс. команд:** {data['tournament_max_teams']}{rules_file_info}{logo_info}
 
-📅 **Даты:**
-📋 Регистрация: {data['tournament_registration_start'].strftime('%d.%m.%Y %H:%M')} - {data['tournament_registration_end'].strftime('%d.%m.%Y %H:%M')}
-🏁 Начало: {data['tournament_start_date'].strftime('%d.%m.%Y %H:%M')}
+📅 **Даты (UTC):**
+📋 Регистрация: {format_datetime_for_user(data['tournament_registration_start'], 'UTC')} - {format_datetime_for_user(data['tournament_registration_end'], 'UTC')}
+🏁 Начало: {format_datetime_for_user(data['tournament_start_date'], 'UTC')}
 
 **Все данные корректны?**"""
         
@@ -648,9 +671,12 @@ async def confirm_create_tournament(callback: CallbackQuery, state: FSMContext):
 
 Турнир добавлен в систему и готов к регистрации участников."""
             
-            await safe_edit_message(
-                callback.message, text, parse_mode="Markdown"
-            )
+            # Если было фото с логотипом, отправляем новое сообщение, иначе редактируем существующее
+            if data.get('tournament_logo_file_id'):
+                await callback.message.answer(text, parse_mode="Markdown")
+            else:
+                await safe_edit_message(callback.message, text, parse_mode="Markdown")
+            
             await callback.answer("✅ Турнир создан!", show_alert=True)
         else:
             await callback.answer("❌ Ошибка создания турнира", show_alert=True)

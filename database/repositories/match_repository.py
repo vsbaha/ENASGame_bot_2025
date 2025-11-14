@@ -5,7 +5,7 @@ from typing import List, Optional
 from sqlalchemy import select, update, and_
 from sqlalchemy.orm import selectinload
 
-from database.models import Match, MatchStatus, Team
+from database.models import Match, MatchStatus, Team, TeamStatus
 from database.db_manager import DatabaseSession
 
 
@@ -165,6 +165,30 @@ class MatchRepository:
             return await MatchRepository.get_by_id(match_id)
     
     @staticmethod
+    async def update_teams(
+        match_id: int,
+        team1_id: Optional[int] = None,
+        team2_id: Optional[int] = None
+    ) -> Optional[Match]:
+        """Обновление команд в матче"""
+        async with DatabaseSession() as session:
+            update_values = {}
+            if team1_id is not None:
+                update_values['team1_id'] = team1_id
+            if team2_id is not None:
+                update_values['team2_id'] = team2_id
+            
+            if update_values:
+                await session.execute(
+                    update(Match)
+                    .where(Match.id == match_id)
+                    .values(**update_values)
+                )
+                await session.commit()
+            
+            return await MatchRepository.get_by_id(match_id)
+    
+    @staticmethod
     async def set_match_winner(match_id: int, winner_id: int) -> Optional[Match]:
         """Установка победителя матча"""
         async with DatabaseSession() as session:
@@ -196,16 +220,35 @@ class MatchRepository:
     @staticmethod
     async def sync_matches_from_challonge(
         tournament_id: int,
-        challonge_matches: List[dict]
+        challonge_matches: List[dict],
+        participants_map: dict = None
     ) -> List[Match]:
-        """Синхронизация матчей из Challonge в БД"""
+        """Синхронизация матчей из Challonge в БД
+        
+        Args:
+            tournament_id: ID турнира
+            challonge_matches: Список матчей из Challonge API
+            participants_map: Словарь {challonge_participant_id: team_id} для связи участников с командами
+        """
+        from database.repositories import TeamRepository
+        
         synced_matches = []
+        
+        # Если маппинг не передан, создаем его на основе имен команд
+        if participants_map is None:
+            participants_map = {}
+            teams = await TeamRepository.get_teams_by_tournament(tournament_id, status=TeamStatus.APPROVED)
+            for team in teams:
+                # Предполагаем, что имена команд совпадают с именами участников в Challonge
+                participants_map[team.name] = team.id
         
         for challonge_match in challonge_matches:
             match_data = challonge_match.get("match", challonge_match)
             
             challonge_match_id = str(match_data["id"])
             round_number = match_data.get("round", 1)
+            player1_id = match_data.get("player1_id")
+            player2_id = match_data.get("player2_id")
             
             # Проверяем, существует ли матч
             existing_match = await MatchRepository.get_by_challonge_id(
@@ -213,17 +256,30 @@ class MatchRepository:
                 challonge_match_id
             )
             
+            # Получаем team_id для участников (если маппинг по ID)
+            team1_id = participants_map.get(player1_id) if isinstance(participants_map, dict) and player1_id in participants_map else None
+            team2_id = participants_map.get(player2_id) if isinstance(participants_map, dict) and player2_id in participants_map else None
+            
             if not existing_match:
                 # Создаем новый матч
                 match = await MatchRepository.create_match(
                     tournament_id=tournament_id,
                     round_number=abs(round_number),  # Challonge использует отрицательные для loser bracket
                     match_number=match_data.get("suggested_play_order", 0),
+                    team1_id=team1_id,
+                    team2_id=team2_id,
                     challonge_match_id=challonge_match_id,
                     bracket_type="loser" if round_number < 0 else "winner"
                 )
                 synced_matches.append(match)
             else:
+                # Обновляем команды если они изменились
+                if team1_id or team2_id:
+                    await MatchRepository.update_teams(
+                        existing_match.id,
+                        team1_id=team1_id,
+                        team2_id=team2_id
+                    )
                 synced_matches.append(existing_match)
         
         return synced_matches

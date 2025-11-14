@@ -18,6 +18,7 @@ async def safe_edit_message(
 ) -> bool:
     """
     Безопасное редактирование сообщения с обработкой ошибок.
+    Автоматически определяет тип сообщения (текст/фото) и использует правильный метод.
     
     Args:
         message: Сообщение для редактирования
@@ -29,12 +30,24 @@ async def safe_edit_message(
         bool: True если сообщение успешно отредактировано, False иначе
     """
     try:
-        await message.edit_text(
-            text=text,
-            reply_markup=reply_markup,
-            parse_mode=parse_mode
-        )
-        return True
+        # Проверяем, содержит ли сообщение фото
+        if message.photo:
+            # Для фото сообщений не можем заменить на текст - нужно удалить и отправить новое
+            await message.delete()
+            await message.answer(
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
+            return True
+        else:
+            # Обычное текстовое сообщение - используем edit_text
+            await message.edit_text(
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
+            return True
     except TelegramBadRequest as e:
         if "message is not modified" in str(e):
             logger.debug(f"Сообщение не изменилось, пропускаем редактирование: {e}")

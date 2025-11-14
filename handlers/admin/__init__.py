@@ -39,7 +39,4 @@ def setup_admin_handlers() -> Router:
     from .matches import router as match_router
     admin_router.include_router(match_router)
     
-    from .logs import admin_logs_router
-    admin_router.include_router(admin_logs_router)
-    
     return admin_router

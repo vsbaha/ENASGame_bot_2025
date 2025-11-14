@@ -15,9 +15,9 @@ from aiogram.fsm.context import FSMContext
 from aiogram.filters import StateFilter
 
 from database.repositories import TournamentRepository, MatchRepository, TeamRepository
-from database.models import MatchStatus, TournamentStatus
+from database.models import MatchStatus, TournamentStatus, TeamStatus
 from integrations.challonge_api import ChallongeAPI
-from config import settings
+from config.settings import settings
 from handlers.admin.states import AdminStates
 
 logger = logging.getLogger(__name__)
@@ -28,10 +28,15 @@ router = Router()
 @router.callback_query(F.data.startswith("admin:manage_matches_"))
 async def manage_matches_redirect(callback: CallbackQuery, state: FSMContext):
     """Перенаправление на список матчей"""
-    tournament_id = callback.data.split("_")[2]
-    # Перенаправляем на show_matches
-    callback.data = f"admin:show_matches_{tournament_id}"
-    await show_tournament_matches(callback, state)
+    await callback.answer()
+    
+    try:
+        tournament_id = int(callback.data.split("_")[2])
+        await display_tournament_matches(callback, tournament_id)
+    except Exception as e:
+        logger.error(f"Ошибка отображения матчей: {e}")
+        from utils.message_utils import safe_edit_message
+        await safe_edit_message(callback.message, "❌ Ошибка загрузки матчей")
 
 
 def get_matches_keyboard(tournament_id: int, matches: list, back_callback: str = None):
@@ -185,6 +190,53 @@ def get_score_confirmation_keyboard(match_id: int, tournament_id: int):
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+async def display_tournament_matches(callback: CallbackQuery, tournament_id: int):
+    """Helper функция для отображения списка матчей"""
+    from utils.message_utils import safe_edit_message
+    
+    # Получаем турнир
+    tournament = await TournamentRepository.get_by_id(tournament_id)
+    if not tournament:
+        await safe_edit_message(callback.message, "❌ Турнир не найден")
+        return
+    
+    # Получаем незавершенные матчи
+    pending_matches = await MatchRepository.get_pending_matches(tournament_id)
+    
+    if not pending_matches and tournament.status != TournamentStatus.IN_PROGRESS.value:
+        await safe_edit_message(
+            callback.message,
+            "⚠️ Матчи будут доступны после запуска турнира.",
+            reply_markup=get_matches_keyboard(
+                tournament_id, 
+                [], 
+                f"admin:manage_tournament_{tournament_id}"
+            )
+        )
+        return
+    
+    # Если нет активных матчей, показываем все
+    tournament_name = tournament.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+    
+    if not pending_matches:
+        all_matches = await MatchRepository.get_tournament_matches(tournament_id)
+        text = f"🏆 <b>{tournament_name}</b>\n\n📊 Все матчи турнира:"
+        keyboard = get_matches_keyboard(
+            tournament_id, 
+            all_matches, 
+            f"admin:manage_tournament_{tournament_id}"
+        )
+    else:
+        text = f"🏆 <b>{tournament_name}</b>\n\n⏳ Активные матчи:"
+        keyboard = get_matches_keyboard(
+            tournament_id, 
+            pending_matches, 
+            f"admin:manage_tournament_{tournament_id}"
+        )
+    
+    await safe_edit_message(callback.message, text, reply_markup=keyboard, parse_mode="HTML")
+
+
 @router.callback_query(F.data.startswith("admin:show_matches_"))
 async def show_tournament_matches(callback: CallbackQuery, state: FSMContext):
     """Отображение списка матчей турнира"""
@@ -192,54 +244,18 @@ async def show_tournament_matches(callback: CallbackQuery, state: FSMContext):
     
     try:
         tournament_id = int(callback.data.split("_")[2])
-        
-        # Получаем турнир
-        tournament = await TournamentRepository.get_by_id(tournament_id)
-        if not tournament:
-            await callback.message.edit_text("❌ Турнир не найден")
-            return
-        
-        # Получаем незавершенные матчи
-        pending_matches = await MatchRepository.get_pending_matches(tournament_id)
-        
-        if not pending_matches and tournament.status != TournamentStatus.IN_PROGRESS.value:
-            await callback.message.edit_text(
-                "⚠️ Матчи будут доступны после запуска турнира.",
-                reply_markup=get_matches_keyboard(
-                    tournament_id, 
-                    [], 
-                    f"admin:tournament_action_{tournament_id}"
-                )
-            )
-            return
-        
-        # Если нет активных матчей, показываем все
-        if not pending_matches:
-            all_matches = await MatchRepository.get_tournament_matches(tournament_id)
-            text = f"🏆 **{tournament.name}**\n\n📊 Все матчи турнира:"
-            keyboard = get_matches_keyboard(
-                tournament_id, 
-                all_matches, 
-                f"admin:tournament_action_{tournament_id}"
-            )
-        else:
-            text = f"🏆 **{tournament.name}**\n\n⏳ Активные матчи:"
-            keyboard = get_matches_keyboard(
-                tournament_id, 
-                pending_matches, 
-                f"admin:tournament_action_{tournament_id}"
-            )
-        
-        await callback.message.edit_text(text, reply_markup=keyboard)
+        await display_tournament_matches(callback, tournament_id)
         
     except Exception as e:
         logger.error(f"Ошибка отображения матчей: {e}")
-        await callback.message.edit_text(f"❌ Ошибка: {str(e)}")
+        from utils.message_utils import safe_edit_message
+        await safe_edit_message(callback.message, f"❌ Ошибка: {str(e)}")
 
 
 @router.callback_query(F.data.startswith("admin:match_view_"))
 async def view_match_details(callback: CallbackQuery, state: FSMContext):
     """Детальный просмотр матча"""
+    from utils.message_utils import safe_edit_message
     await callback.answer()
     
     try:
@@ -247,47 +263,54 @@ async def view_match_details(callback: CallbackQuery, state: FSMContext):
         
         match = await MatchRepository.get_by_id(match_id)
         if not match:
-            await callback.message.edit_text("❌ Матч не найден")
+            await safe_edit_message(callback.message, "❌ Матч не найден")
             return
         
         # Формируем текст
         team1_name = match.team1.name if match.team1 else "TBD"
         team2_name = match.team2.name if match.team2 else "TBD"
         
-        text = f"🎮 **Матч #{match.match_number}**\n"
+        # HTML escaping
+        team1_name = team1_name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        team2_name = team2_name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        
+        text = f"🎮 <b>Матч #{match.match_number}</b>\n"
         text += f"📍 Раунд {match.round_number}\n\n"
         
-        text += f"🔵 **{team1_name}**"
+        text += f"🔵 <b>{team1_name}</b>"
         if match.status == MatchStatus.COMPLETED.value:
-            text += f" — **{match.team1_score or 0}**"
+            text += f" — <b>{match.team1_score or 0}</b>"
         text += "\n"
         
-        text += f"🔴 **{team2_name}**"
+        text += f"🔴 <b>{team2_name}</b>"
         if match.status == MatchStatus.COMPLETED.value:
-            text += f" — **{match.team2_score or 0}**"
+            text += f" — <b>{match.team2_score or 0}</b>"
         text += "\n\n"
         
         # Статус
         if match.status == MatchStatus.COMPLETED.value:
             winner_name = match.winner.name if match.winner else "Неизвестно"
-            text += f"✅ **Завершен**\n"
-            text += f"🏆 Победитель: **{winner_name}**"
+            winner_name = winner_name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            text += f"✅ <b>Завершен</b>\n"
+            text += f"🏆 Победитель: <b>{winner_name}</b>"
         elif match.status == MatchStatus.PENDING.value:
-            text += "⏳ **Ожидает результата**"
+            text += "⏳ <b>Ожидает результата</b>"
         else:
             text += f"📌 Статус: {match.status}"
         
         keyboard = get_match_detail_keyboard(match_id, match.tournament_id)
-        await callback.message.edit_text(text, reply_markup=keyboard)
+        await safe_edit_message(callback.message, text, reply_markup=keyboard, parse_mode="HTML")
         
     except Exception as e:
         logger.error(f"Ошибка просмотра матча: {e}")
-        await callback.message.edit_text(f"❌ Ошибка: {str(e)}")
+        from utils.message_utils import safe_edit_message
+        await safe_edit_message(callback.message, f"❌ Ошибка: {str(e)}")
 
 
 @router.callback_query(F.data.startswith("admin:enter_result_"))
 async def start_enter_result(callback: CallbackQuery, state: FSMContext):
     """Начало ввода результата матча"""
+    from utils.message_utils import safe_edit_message
     await callback.answer()
     
     try:
@@ -295,11 +318,12 @@ async def start_enter_result(callback: CallbackQuery, state: FSMContext):
         
         match = await MatchRepository.get_by_id(match_id)
         if not match:
-            await callback.message.edit_text("❌ Матч не найден")
+            await safe_edit_message(callback.message, "❌ Матч не найден")
             return
         
         if not match.team1 or not match.team2:
-            await callback.message.edit_text(
+            await safe_edit_message(
+                callback.message,
                 "⚠️ Невозможно ввести результат: не определены обе команды"
             )
             return
@@ -308,22 +332,24 @@ async def start_enter_result(callback: CallbackQuery, state: FSMContext):
         await state.update_data(match_id=match_id)
         await state.set_state(AdminStates.entering_team1_score)
         
-        team1_name = match.team1.name
-        team2_name = match.team2.name
+        team1_name = match.team1.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        team2_name = match.team2.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
         
-        text = f"🎮 **Ввод результата матча**\n\n"
+        text = f"🎮 <b>Ввод результата матча</b>\n\n"
         text += f"🔵 {team1_name}\n"
         text += f"🔴 {team2_name}\n\n"
-        text += f"Введите счет для **{team1_name}**:"
+        text += f"Введите счет для <b>{team1_name}</b>:"
         
-        await callback.message.edit_text(
+        await safe_edit_message(
+            callback.message,
             text, 
-            reply_markup=get_score_input_keyboard(match_id)
+            reply_markup=get_score_input_keyboard(match_id),
+            parse_mode="HTML"
         )
         
     except Exception as e:
         logger.error(f"Ошибка начала ввода результата: {e}")
-        await callback.message.edit_text(f"❌ Ошибка: {str(e)}")
+        await safe_edit_message(callback.message, f"❌ Ошибка: {str(e)}")
 
 
 @router.message(StateFilter(AdminStates.entering_team1_score))
@@ -343,10 +369,10 @@ async def process_team1_score(message: Message, state: FSMContext):
         match_id = data.get("match_id")
         
         match = await MatchRepository.get_by_id(match_id)
-        team2_name = match.team2.name
+        team2_name = match.team2.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
         
         await state.set_state(AdminStates.entering_team2_score)
-        await message.answer(f"Теперь введите счет для **{team2_name}**:")
+        await message.answer(f"Теперь введите счет для <b>{team2_name}</b>:", parse_mode="HTML")
         
     except ValueError:
         await message.answer("⚠️ Пожалуйста, введите число:")
@@ -388,15 +414,20 @@ async def process_team2_score(message: Message, state: FSMContext):
         await state.update_data(winner_id=winner.id)
         
         # Показываем подтверждение
-        text = f"🎮 **Подтверждение результата**\n\n"
-        text += f"🔵 **{match.team1.name}** — **{team1_score}**\n"
-        text += f"🔴 **{match.team2.name}** — **{team2_score}**\n\n"
-        text += f"🏆 Победитель: **{winner.name}**\n\n"
+        team1_name = match.team1.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        team2_name = match.team2.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        winner_name = winner.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        
+        text = f"🎮 <b>Подтверждение результата</b>\n\n"
+        text += f"🔵 <b>{team1_name}</b> — <b>{team1_score}</b>\n"
+        text += f"🔴 <b>{team2_name}</b> — <b>{team2_score}</b>\n\n"
+        text += f"🏆 Победитель: <b>{winner_name}</b>\n\n"
         text += "Подтвердите результат:"
         
         await message.answer(
             text,
-            reply_markup=get_score_confirmation_keyboard(match_id, match.tournament_id)
+            reply_markup=get_score_confirmation_keyboard(match_id, match.tournament_id),
+            parse_mode="HTML"
         )
         
         await state.set_state(AdminStates.confirming_match_result)
@@ -423,7 +454,8 @@ async def confirm_match_result(callback: CallbackQuery, state: FSMContext):
         winner_id = data.get("winner_id")
         
         if not all([team1_score is not None, team2_score is not None, winner_id]):
-            await callback.message.edit_text("❌ Ошибка: данные результата не найдены")
+            from utils.message_utils import safe_edit_message
+            await safe_edit_message(callback.message, "❌ Ошибка: данные результата не найдены")
             return
         
         match = await MatchRepository.get_by_id(match_id)
@@ -468,10 +500,14 @@ async def confirm_match_result(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         
         # Показываем результат
-        text = f"✅ **Результат сохранен!**\n\n"
-        text += f"🔵 {updated_match.team1.name} — {team1_score}\n"
-        text += f"🔴 {updated_match.team2.name} — {team2_score}\n\n"
-        text += f"🏆 Победитель: **{updated_match.winner.name}**"
+        team1_name = updated_match.team1.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        team2_name = updated_match.team2.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        winner_name = updated_match.winner.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        
+        text = f"✅ <b>Результат сохранен!</b>\n\n"
+        text += f"🔵 {team1_name} — {team1_score}\n"
+        text += f"🔴 {team2_name} — {team2_score}\n\n"
+        text += f"🏆 Победитель: <b>{winner_name}</b>"
         
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -483,11 +519,13 @@ async def confirm_match_result(callback: CallbackQuery, state: FSMContext):
             ]
         ])
         
-        await callback.message.edit_text(text, reply_markup=keyboard)
+        from utils.message_utils import safe_edit_message
+        await safe_edit_message(callback.message, text, reply_markup=keyboard, parse_mode="HTML")
         
     except Exception as e:
         logger.error(f"Ошибка подтверждения результата: {e}")
-        await callback.message.edit_text(f"❌ Ошибка сохранения: {str(e)}")
+        from utils.message_utils import safe_edit_message
+        await safe_edit_message(callback.message, f"❌ Ошибка сохранения: {str(e)}")
         await state.clear()
 
 
@@ -512,10 +550,30 @@ async def sync_matches_from_challonge(callback: CallbackQuery, state: FSMContext
             await callback.answer("⚠️ Матчи не найдены в Challonge", show_alert=True)
             return
         
-        # Синхронизируем матчи
+        # Получаем участников из Challonge для создания маппинга
+        challonge_participants = await challonge.get_participants(tournament.challonge_id)
+        
+        # Получаем команды из БД
+        teams = await TeamRepository.get_teams_by_tournament(tournament_id, status=TeamStatus.APPROVED)
+        
+        # Создаем маппинг: challonge_participant_id -> team_id по именам
+        participants_map = {}
+        for participant_data in challonge_participants:
+            participant = participant_data.get("participant", participant_data)
+            participant_name = participant.get("name")
+            participant_id = participant.get("id")
+            
+            # Ищем команду с таким же именем
+            for team in teams:
+                if team.name == participant_name:
+                    participants_map[participant_id] = team.id
+                    break
+        
+        # Синхронизируем матчи с маппингом
         synced_matches = await MatchRepository.sync_matches_from_challonge(
             tournament_id=tournament_id,
-            challonge_matches=challonge_matches
+            challonge_matches=challonge_matches,
+            participants_map=participants_map
         )
         
         await callback.answer(

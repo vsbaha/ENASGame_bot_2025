@@ -53,18 +53,40 @@ def get_main_menu_keyboard(localization: Localization) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def get_tournaments_keyboard(tournaments: List, localization: Localization) -> InlineKeyboardMarkup:
-    """Клавиатура со списком турниров"""
+def get_games_selection_keyboard(games: List, localization: Localization) -> InlineKeyboardMarkup:
+    """Клавиатура выбора игры для просмотра турниров"""
     builder = InlineKeyboardBuilder()
     
-    for tournament in tournaments:
+    for game in games:
         builder.button(
-            text=f"🏆 {tournament.name}",
-            callback_data=f"tournament:{tournament.id}"
+            text=f"🎮 {game.name}",
+            callback_data=f"user_game:{game.id}"
         )
     
     back_text = localization.get_text("buttons.back")
     builder.button(text=back_text, callback_data="back_to_menu")
+    
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def get_tournaments_keyboard(tournaments: List, localization: Localization, show_back_to_games: bool = False) -> InlineKeyboardMarkup:
+    """Клавиатура со списком турниров"""
+    builder = InlineKeyboardBuilder()
+    
+    for tournament in tournaments:
+        # Добавляем статус регистрации к названию
+        status_emoji = "✅" if tournament.status == "registration" else "🔒"
+        builder.button(
+            text=f"{status_emoji} {tournament.name}",
+            callback_data=f"tournament:{tournament.id}"
+        )
+    
+    back_text = localization.get_text("buttons.back")
+    if show_back_to_games:
+        builder.button(text=back_text, callback_data="menu:tournaments")
+    else:
+        builder.button(text=back_text, callback_data="back_to_menu")
     
     builder.adjust(1)
     return builder.as_markup()

@@ -45,6 +45,10 @@ async def on_startup(bot: Bot) -> None:
     logger = logging.getLogger(__name__)
     
     try:
+        # Удаляем webhook и очищаем ожидающие обновления
+        await bot.delete_webhook(drop_pending_updates=True)
+        logger.info("Webhook удален, старые обновления очищены")
+        
         # Инициализируем базу данных
         await init_database()
         logger.info("База данных инициализирована")

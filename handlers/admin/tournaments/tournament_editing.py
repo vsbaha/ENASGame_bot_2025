@@ -10,13 +10,14 @@ from aiogram.fsm.context import FSMContext
 
 from database.repositories import TournamentRepository, GameRepository
 from utils.message_utils import safe_edit_message
+from utils.datetime_utils import format_datetime_for_user
 from ..states import AdminStates
 
 router = Router()
 logger = logging.getLogger(__name__)
 
 
-@router.callback_query(F.data.startswith("admin:edit_game_"))
+@router.callback_query(F.data.startswith("admin:edit_tournament_game_"))
 async def edit_tournament_game_start(callback: CallbackQuery, state: FSMContext):
     """Начать редактирование игры турнира"""
     try:
@@ -31,7 +32,7 @@ async def edit_tournament_game_start(callback: CallbackQuery, state: FSMContext)
         games = await GameRepository.get_all_games()
         
         if not games:
-            text = "❌ **Нет доступных игр**\n\nСначала добавьте игры в систему."
+            text = "❌ <b>Нет доступных игр</b>\n\nСначала добавьте игры в систему."
             keyboard = [
                 [
                     InlineKeyboardButton(
@@ -48,7 +49,7 @@ async def edit_tournament_game_start(callback: CallbackQuery, state: FSMContext)
             ]
             
             await safe_edit_message(
-                callback.message, text, parse_mode="Markdown",
+                callback.message, text, parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
             )
             await callback.answer()
@@ -56,10 +57,14 @@ async def edit_tournament_game_start(callback: CallbackQuery, state: FSMContext)
         
         await state.update_data(editing_tournament_id=tournament_id)
         
-        text = f"""🎮 **Изменение игры турнира**
+        tournament_name = tournament.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        game_name = tournament.game.name if hasattr(tournament, 'game') and tournament.game else 'N/A'
+        game_name = game_name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        
+        text = f"""🎮 <b>Изменение игры турнира</b>
 
-**Турнир:** {tournament.name}
-**Текущая игра:** {tournament.game.name if hasattr(tournament, 'game') and tournament.game else 'N/A'}
+<b>Турнир:</b> {tournament_name}
+<b>Текущая игра:</b> {game_name}
 
 Выберите новую игру:"""
         
@@ -80,7 +85,7 @@ async def edit_tournament_game_start(callback: CallbackQuery, state: FSMContext)
         ])
         
         await safe_edit_message(
-            callback.message, text, parse_mode="Markdown",
+            callback.message, text, parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
         )
         await callback.answer()
@@ -135,10 +140,12 @@ async def edit_tournament_format_start(callback: CallbackQuery, state: FSMContex
         
         await state.update_data(editing_tournament_id=tournament_id)
         
-        text = f"""🏆 **Изменение формата турнира**
+        tournament_name = tournament.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        
+        text = f"""🏆 <b>Изменение формата турнира</b>
 
-**Турнир:** {tournament.name}
-**Текущий формат:** {tournament.format}
+<b>Турнир:</b> {tournament_name}
+<b>Текущий формат:</b> {tournament.format}
 
 Выберите новый формат:"""
         
@@ -166,7 +173,7 @@ async def edit_tournament_format_start(callback: CallbackQuery, state: FSMContex
         ])
         
         await safe_edit_message(
-            callback.message, text, parse_mode="Markdown",
+            callback.message, text, parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
         )
         await callback.answer()
@@ -225,9 +232,9 @@ async def edit_tournament_dates_start(callback: CallbackQuery, state: FSMContext
 
 **Турнир:** {tournament.name}
 
-**Текущие даты:**
-📅 Регистрация: {tournament.registration_start.strftime('%d.%m.%Y %H:%M')} - {tournament.registration_end.strftime('%d.%m.%Y %H:%M')}
-🏁 Начало турнира: {tournament.tournament_start.strftime('%d.%m.%Y %H:%M')}
+**Текущие даты (UTC):**
+📅 Регистрация: {format_datetime_for_user(tournament.registration_start, 'UTC')} - {format_datetime_for_user(tournament.registration_end, 'UTC')}
+🏁 Начало турнира: {format_datetime_for_user(tournament.tournament_start, 'UTC')}
 
 Что хотите изменить?"""
         
@@ -259,7 +266,7 @@ async def edit_tournament_dates_start(callback: CallbackQuery, state: FSMContext
         ]
         
         await safe_edit_message(
-            callback.message, text, parse_mode="Markdown",
+            callback.message, text, parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
         )
         await callback.answer()
@@ -288,19 +295,22 @@ async def edit_required_channels_start(callback: CallbackQuery, state: FSMContex
         # Получаем текущие каналы
         channels = tournament.required_channels_list
         
-        text = f"""📢 **Редактирование обязательных каналов**
+        tournament_name = tournament.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        
+        text = f"""📢 <b>Редактирование обязательных каналов</b>
 
-**Турнир:** {tournament.name}
+<b>Турнир:</b> {tournament_name}
 
-**Текущие каналы:** {len(channels)}
+<b>Текущие каналы:</b> {len(channels)}
 """
         
         if channels:
             text += "\n"
             for i, channel in enumerate(channels, 1):
-                text += f"{i}. {channel}\n"
+                channel_escaped = channel.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                text += f"{i}. {channel_escaped}\n"
         else:
-            text += "\n_Нет обязательных каналов_\n"
+            text += "\n<i>Нет обязательных каналов</i>\n"
         
         text += "\nВыберите действие:"
         
@@ -338,7 +348,7 @@ async def edit_required_channels_start(callback: CallbackQuery, state: FSMContex
         ])
         
         await safe_edit_message(
-            callback.message, text, parse_mode="Markdown",
+            callback.message, text, parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
         )
         await callback.answer()
@@ -362,13 +372,15 @@ async def add_required_channel_prompt(callback: CallbackQuery, state: FSMContext
         await state.update_data(editing_tournament_id=tournament_id)
         await state.set_state(AdminStates.editing_tournament_required_channels)
         
-        text = f"""➕ **Добавление канала**
+        tournament_name = tournament.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        
+        text = f"""➕ <b>Добавление канала</b>
 
-**Турнир:** {tournament.name}
+<b>Турнир:</b> {tournament_name}
 
 Отправьте ссылку на канал или username:
 
-**Примеры:**
+<b>Примеры:</b>
 • @channel_name
 • https://t.me/channel_name
 • t.me/channel_name
@@ -385,7 +397,7 @@ async def add_required_channel_prompt(callback: CallbackQuery, state: FSMContext
         ]
         
         await safe_edit_message(
-            callback.message, text, parse_mode="Markdown",
+            callback.message, text, parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
         )
         await callback.answer()
@@ -456,18 +468,21 @@ async def process_add_required_channel(message: Message, state: FSMContext):
         )
         
         if success:
-            await message.answer(f"✅ Канал {channel} добавлен!")
+            channel_escaped = channel.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            await message.answer(f"✅ Канал {channel_escaped} добавлен!", parse_mode="HTML")
             await state.clear()
             
             # Показываем обновленный список
-            text = f"""📢 **Обязательные каналы обновлены**
+            tournament_name = tournament.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            text = f"""📢 <b>Обязательные каналы обновлены</b>
 
-**Турнир:** {tournament.name}
-**Всего каналов:** {len(current_channels)}
+<b>Турнир:</b> {tournament_name}
+<b>Всего каналов:</b> {len(current_channels)}
 
 """
             for i, ch in enumerate(current_channels, 1):
-                text += f"{i}. {ch}\n"
+                ch_escaped = ch.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                text += f"{i}. {ch_escaped}\n"
             
             keyboard = [
                 [
@@ -492,7 +507,7 @@ async def process_add_required_channel(message: Message, state: FSMContext):
             
             await message.answer(
                 text, 
-                parse_mode="Markdown",
+                parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
             )
         else:
@@ -531,9 +546,65 @@ async def remove_required_channel(callback: CallbackQuery, state: FSMContext):
             
             if success:
                 await callback.answer(f"✅ Канал {removed_channel} удален", show_alert=True)
-                # Обновляем отображение
-                callback.data = f"admin:edit_required_channels_{tournament_id}"
-                await edit_required_channels_start(callback, state)
+                # Обновляем отображение списка каналов
+                tournament = await TournamentRepository.get_by_id(tournament_id)
+                if tournament:
+                    channels = tournament.required_channels_list
+                    tournament_name = tournament.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                    
+                    text = f"""📢 <b>Редактирование обязательных каналов</b>
+
+<b>Турнир:</b> {tournament_name}
+
+"""
+                    
+                    if channels:
+                        text += f"<b>Текущие каналы</b> ({len(channels)}):\n\n"
+                        for i, ch in enumerate(channels):
+                            ch_escaped = ch.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                            text += f"{i+1}. {ch_escaped}\n"
+                    else:
+                        text += "\n<i>Нет обязательных каналов</i>\n"
+                    
+                    keyboard = []
+                    
+                    # Кнопки удаления каналов
+                    if channels:
+                        for i, ch in enumerate(channels):
+                            ch_display = ch[:20] + "..." if len(ch) > 20 else ch
+                            keyboard.append([
+                                InlineKeyboardButton(
+                                    text=f"❌ {ch_display}",
+                                    callback_data=f"admin:remove_channel_{tournament_id}_{i}"
+                                )
+                            ])
+                        keyboard.append([
+                            InlineKeyboardButton(
+                                text="🗑️ Очистить все",
+                                callback_data=f"admin:clear_all_channels_{tournament_id}"
+                            )
+                        ])
+                    
+                    keyboard.extend([
+                        [
+                            InlineKeyboardButton(
+                                text="➕ Добавить канал",
+                                callback_data=f"admin:add_required_channel_{tournament_id}"
+                            )
+                        ],
+                        [
+                            InlineKeyboardButton(
+                                text="🔙 Назад",
+                                callback_data=f"admin:edit_tournament_details_{tournament_id}"
+                            )
+                        ]
+                    ])
+                    
+                    await callback.message.edit_text(
+                        text,
+                        parse_mode="HTML",
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+                    )
             else:
                 await callback.answer("❌ Ошибка удаления", show_alert=True)
         else:
@@ -559,8 +630,37 @@ async def clear_all_channels(callback: CallbackQuery, state: FSMContext):
         if success:
             await callback.answer("✅ Все каналы удалены", show_alert=True)
             # Обновляем отображение
-            callback.data = f"admin:edit_required_channels_{tournament_id}"
-            await edit_required_channels_start(callback, state)
+            tournament = await TournamentRepository.get_by_id(tournament_id)
+            if tournament:
+                tournament_name = tournament.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                
+                text = f"""📢 <b>Редактирование обязательных каналов</b>
+
+<b>Турнир:</b> {tournament_name}
+
+<i>Нет обязательных каналов</i>
+"""
+                
+                keyboard = [
+                    [
+                        InlineKeyboardButton(
+                            text="➕ Добавить канал",
+                            callback_data=f"admin:add_required_channel_{tournament_id}"
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="🔙 Назад",
+                            callback_data=f"admin:edit_tournament_details_{tournament_id}"
+                        )
+                    ]
+                ]
+                
+                await callback.message.edit_text(
+                    text,
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+                )
         else:
             await callback.answer("❌ Ошибка очистки", show_alert=True)
         

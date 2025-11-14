@@ -47,7 +47,7 @@ class TeamRepository:
                 .options(
                     selectinload(Team.players),
                     selectinload(Team.captain),
-                    selectinload(Team.tournament)
+                    selectinload(Team.tournament).selectinload(Tournament.game)
                 )
                 .where(Team.id == team_id)
             )
@@ -88,7 +88,7 @@ class TeamRepository:
                 select(Team)
                 .options(
                     selectinload(Team.players),
-                    selectinload(Team.tournament)
+                    selectinload(Team.tournament).selectinload(Tournament.game)
                 )
                 .where(Team.captain_id == captain_id)
                 .order_by(Team.created_at.desc())
@@ -176,6 +176,46 @@ class TeamRepository:
             
             result = await session.execute(stmt)
             return result.scalar_one_or_none() is not None
+    
+    @staticmethod
+    async def is_captain_registered(captain_id: int, tournament_id: int) -> bool:
+        """Проверка регистрации капитана на турнир"""
+        async with get_session() as session:
+            session: AsyncSession
+            
+            stmt = select(Team).where(
+                and_(
+                    Team.captain_id == captain_id,
+                    Team.tournament_id == tournament_id
+                )
+            )
+            
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none() is not None
+    
+    @staticmethod
+    async def get_by_name_and_tournament(tournament_id: int, name: str) -> Optional[Team]:
+        """Получение команды по названию и турниру"""
+        async with get_session() as session:
+            session: AsyncSession
+            
+            stmt = (
+                select(Team)
+                .options(
+                    selectinload(Team.players),
+                    selectinload(Team.captain),
+                    selectinload(Team.tournament).selectinload(Tournament.game)
+                )
+                .where(
+                    and_(
+                        Team.tournament_id == tournament_id,
+                        Team.name == name
+                    )
+                )
+            )
+            
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
     
     @staticmethod
     async def get_tournament_teams_count(tournament_id: int) -> int:

@@ -8,6 +8,7 @@ from aiogram.fsm.context import FSMContext
 
 from database.repositories import TournamentRepository
 from utils.message_utils import safe_edit_message
+from utils.datetime_utils import format_datetime_for_user
 from ..keyboards import get_tournament_management_keyboard, get_tournament_settings_keyboard, get_tournament_action_keyboard
 
 router = Router()
@@ -89,6 +90,94 @@ async def tournament_settings_menu(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Ошибка загрузки данных", show_alert=True)
 
 
+async def show_tournament_management_info(callback: CallbackQuery, tournament):
+    """Показать информацию о турнире с кнопками управления (helper функция)"""
+    # Статус эмодзи
+    status_emoji = {
+        'registration': '📝',
+        'in_progress': '🏃', 
+        'completed': '✅',
+        'cancelled': '❌',
+        'paused': '⏸️'
+    }.get(tournament.status, '❓')
+    
+    # Статус на русском
+    status_text = {
+        'registration': 'Регистрация',
+        'in_progress': 'В процессе',
+        'completed': 'Завершен',
+        'cancelled': 'Отменен', 
+        'paused': 'Приостановлен'
+    }.get(tournament.status, 'Неизвестно')
+    
+    game_name = tournament.game.name if hasattr(tournament, 'game') and tournament.game else 'N/A'
+    description = tournament.description or 'Не указано'
+    
+    # Информация о файлах
+    files_info = []
+    if tournament.rules_file_id:
+        files_info.append(f"📄 Правила: <b>{escape_html(tournament.rules_file_name or 'Загружены')}</b>")
+    if tournament.logo_file_id:
+        files_info.append("🖼️ Логотип: <b>Загружен</b>")
+    
+    files_text = "\n".join(files_info) if files_info else "❌ Файлы не загружены"
+    
+    text = f"""🏆 <b>{escape_html(tournament.name)}</b>
+
+📊 <b>Подробная информация:</b>
+🎮 Игра: <b>{escape_html(game_name)}</b>
+🏆 Формат: <b>{escape_html(tournament.format)}</b>
+📈 Статус: {status_emoji} <b>{status_text}</b>
+👥 Максимум команд: <b>{tournament.max_teams}</b>
+📅 Создан: <b>{format_datetime_for_user(tournament.created_at, 'Asia/Bishkek', '%d.%m.%Y в %H:%M')}</b>
+
+📅 <b>Даты (GMT+6):</b>
+📋 Регистрация: <b>{format_datetime_for_user(tournament.registration_start, 'Asia/Bishkek')}</b> - <b>{format_datetime_for_user(tournament.registration_end, 'Asia/Bishkek')}</b>
+🏁 Начало турнира: <b>{format_datetime_for_user(tournament.tournament_start, 'Asia/Bishkek')}</b>
+
+📝 <b>Описание:</b> {escape_html(description)}
+
+📎 <b>Файлы:</b>
+{files_text}
+
+<b>Выберите действие:</b>"""
+    
+    # Отправляем логотип если есть
+    if tournament.logo_file_id:
+        try:
+            await callback.message.answer_photo(
+                photo=tournament.logo_file_id,
+                caption=text,
+                reply_markup=get_tournament_action_keyboard(tournament.id, tournament.status),
+                parse_mode="HTML"
+            )
+            # Удаляем старое сообщение
+            await callback.message.delete()
+        except Exception as e:
+            logger.error(f"Ошибка отправки логотипа: {e}")
+            # Если не удалось отправить с логотипом, отправляем текстом
+            await safe_edit_message(
+                callback.message, text, parse_mode="HTML",
+                reply_markup=get_tournament_action_keyboard(tournament.id, tournament.status)
+            )
+    else:
+        await safe_edit_message(
+            callback.message, text, parse_mode="HTML",
+            reply_markup=get_tournament_action_keyboard(tournament.id, tournament.status)
+        )
+    
+    # Отправляем файл правил если есть
+    if tournament.rules_file_id:
+        try:
+            await callback.message.answer_document(
+                document=tournament.rules_file_id,
+                caption=f"📄 <b>Правила турнира:</b> {escape_html(tournament.rules_file_name or 'Правила.pdf')}",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Ошибка отправки файла правил: {e}")
+
+
 @router.callback_query(F.data.startswith("admin:manage_tournament_"))
 async def manage_specific_tournament(callback: CallbackQuery, state: FSMContext):
     """Управление конкретным турниром"""
@@ -105,91 +194,7 @@ async def manage_specific_tournament(callback: CallbackQuery, state: FSMContext)
             await callback.answer("❌ Турнир не найден", show_alert=True)
             return
         
-        # Статус эмодзи
-        status_emoji = {
-            'registration': '📝',
-            'in_progress': '🏃', 
-            'completed': '✅',
-            'cancelled': '❌',
-            'paused': '⏸️'
-        }.get(tournament.status, '❓')
-        
-        # Статус на русском
-        status_text = {
-            'registration': 'Регистрация',
-            'in_progress': 'В процессе',
-            'completed': 'Завершен',
-            'cancelled': 'Отменен', 
-            'paused': 'Приостановлен'
-        }.get(tournament.status, 'Неизвестно')
-        
-        game_name = tournament.game.name if hasattr(tournament, 'game') and tournament.game else 'N/A'
-        description = tournament.description or 'Не указано'
-        
-        # Информация о файлах
-        files_info = []
-        if tournament.rules_file_id:
-            files_info.append(f"📄 Правила: <b>{escape_html(tournament.rules_file_name or 'Загружены')}</b>")
-        if tournament.logo_file_id:
-            files_info.append("🖼️ Логотип: <b>Загружен</b>")
-        
-        files_text = "\n".join(files_info) if files_info else "❌ Файлы не загружены"
-        
-        text = f"""🏆 <b>{escape_html(tournament.name)}</b>
-
-📊 <b>Подробная информация:</b>
-🎮 Игра: <b>{escape_html(game_name)}</b>
-🏆 Формат: <b>{escape_html(tournament.format)}</b>
-📈 Статус: {status_emoji} <b>{status_text}</b>
-👥 Максимум команд: <b>{tournament.max_teams}</b>
-📅 Создан: <b>{tournament.created_at.strftime('%d.%m.%Y в %H:%M')}</b>
-
-📅 <b>Даты:</b>
-📋 Регистрация: <b>{tournament.registration_start.strftime('%d.%m.%Y %H:%M')}</b> - <b>{tournament.registration_end.strftime('%d.%m.%Y %H:%M')}</b>
-🏁 Начало турнира: <b>{tournament.tournament_start.strftime('%d.%m.%Y %H:%M')}</b>
-
-📝 <b>Описание:</b> {escape_html(description)}
-
-📎 <b>Файлы:</b>
-{files_text}
-
-<b>Выберите действие:</b>"""
-        
-        # Отправляем логотип если есть
-        if tournament.logo_file_id:
-            try:
-                await callback.message.answer_photo(
-                    photo=tournament.logo_file_id,
-                    caption=text,
-                    reply_markup=get_tournament_action_keyboard(tournament_id, tournament.status),
-                    parse_mode="HTML"
-                )
-                # Удаляем старое сообщение
-                await callback.message.delete()
-            except Exception as e:
-                logger.error(f"Ошибка отправки логотипа: {e}")
-                # Если не удалось отправить с логотипом, отправляем текстом
-                await safe_edit_message(
-                    callback.message, text, parse_mode="HTML",
-                    reply_markup=get_tournament_action_keyboard(tournament_id, tournament.status)
-                )
-        else:
-            await safe_edit_message(
-                callback.message, text, parse_mode="HTML",
-                reply_markup=get_tournament_action_keyboard(tournament_id, tournament.status)
-            )
-        
-        # Отправляем файл правил если есть
-        if tournament.rules_file_id:
-            try:
-                await callback.message.answer_document(
-                    document=tournament.rules_file_id,
-                    caption=f"📄 <b>Правила турнира:</b> {escape_html(tournament.rules_file_name or 'Правила.pdf')}",
-                    parse_mode="HTML"
-                )
-            except Exception as e:
-                logger.error(f"Ошибка отправки файла правил: {e}")
-        
+        await show_tournament_management_info(callback, tournament)
         await callback.answer()
         
     except Exception as e:
@@ -208,9 +213,10 @@ async def start_tournament(callback: CallbackQuery, state: FSMContext):
         
         if success:
             await callback.answer("✅ Турнир запущен!", show_alert=True)
-            # Возвращаемся к управлению турниром
-            callback.data = f"admin:manage_tournament_{tournament_id}"
-            await manage_specific_tournament(callback, state)
+            # Возвращаемся к управлению турниром - показываем обновленную информацию
+            tournament = await TournamentRepository.get_by_id(tournament_id)
+            if tournament:
+                await show_tournament_management_info(callback, tournament)
         else:
             await callback.answer("❌ Ошибка запуска турнира", show_alert=True)
             
@@ -230,9 +236,10 @@ async def pause_tournament(callback: CallbackQuery, state: FSMContext):
         
         if success:
             await callback.answer("⏸️ Турнир приостановлен!", show_alert=True)
-            # Возвращаемся к управлению турниром
-            callback.data = f"admin:manage_tournament_{tournament_id}"
-            await manage_specific_tournament(callback, state)
+            # Возвращаемся к управлению турниром - показываем обновленную информацию
+            tournament = await TournamentRepository.get_by_id(tournament_id)
+            if tournament:
+                await show_tournament_management_info(callback, tournament)
         else:
             await callback.answer("❌ Ошибка приостановки турнира", show_alert=True)
             
@@ -252,9 +259,10 @@ async def resume_tournament(callback: CallbackQuery, state: FSMContext):
         
         if success:
             await callback.answer("▶️ Турнир продолжен!", show_alert=True)
-            # Возвращаемся к управлению турниром
-            callback.data = f"admin:manage_tournament_{tournament_id}"
-            await manage_specific_tournament(callback, state)
+            # Возвращаемся к управлению турниром - показываем обновленную информацию
+            tournament = await TournamentRepository.get_by_id(tournament_id)
+            if tournament:
+                await show_tournament_management_info(callback, tournament)
         else:
             await callback.answer("❌ Ошибка продолжения турнира", show_alert=True)
             
@@ -281,7 +289,7 @@ async def confirm_delete_tournament(callback: CallbackQuery, state: FSMContext):
 ⚠️ **Вы действительно хотите удалить турнир?**
 
 🏆 **Название:** {tournament.name}
-📅 **Создан:** {tournament.created_at.strftime('%d.%m.%Y')}
+📅 **Создан:** {format_datetime_for_user(tournament.created_at, 'Asia/Bishkek', '%d.%m.%Y')}
 👥 **Команд:** {tournament.max_teams}
 
 **Это действие необратимо!**"""
@@ -480,7 +488,7 @@ async def edit_tournament_details_menu(callback: CallbackQuery, state: FSMContex
             [
                 InlineKeyboardButton(
                     text="🎮 Игру",
-                    callback_data=f"admin:edit_game_{tournament_id}"
+                    callback_data=f"admin:edit_tournament_game_{tournament_id}"
                 ),
                 InlineKeyboardButton(
                     text="🏆 Формат",

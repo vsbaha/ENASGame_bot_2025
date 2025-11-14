@@ -49,22 +49,26 @@ async def show_bracket_generation_menu(callback: CallbackQuery, state: FSMContex
         # Проверяем есть ли уже Challonge турнир
         challonge_status = "✅ Создан" if tournament.challonge_id else "❌ Не создан"
         
-        text = f"""🎯 **Генерация турнирной сетки**
+        # Экранируем специальные символы для HTML
+        tournament_name = tournament.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        tournament_format = tournament.format.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        
+        text = f"""🎯 <b>Генерация турнирной сетки</b>
 
-**Турнир:** {tournament.name}
-**Формат:** {tournament.format}
-**Команд одобрено:** {len(approved_teams)}/{tournament.max_teams}
-**Challonge:** {challonge_status}
+<b>Турнир:</b> {tournament_name}
+<b>Формат:</b> {tournament_format}
+<b>Команд одобрено:</b> {len(approved_teams)}/{tournament.max_teams}
+<b>Challonge:</b> {challonge_status}
 
-**Шаги генерации:**
+<b>Шаги генерации:</b>
 1. Создать турнир в Challonge (если не создан)
 2. Добавить все одобренные команды
 3. Рандомизировать сиды
 4. Запустить турнир
 
-⚠️ **Внимание:** После генерации сетки турнир будет переведён в статус "В процессе" и регистрация закроется.
+⚠️ <b>Внимание:</b> После генерации сетки турнир будет переведён в статус "В процессе" и регистрация закроется.
 
-**Готовы начать?**"""
+<b>Готовы начать?</b>"""
         
         keyboard = []
         
@@ -105,7 +109,7 @@ async def show_bracket_generation_menu(callback: CallbackQuery, state: FSMContex
         ])
         
         await safe_edit_message(
-            callback.message, text, parse_mode="Markdown",
+            callback.message, text, parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
         )
         await callback.answer()
@@ -263,15 +267,17 @@ Challonge API не настроен.
         # Результат
         if failed_teams:
             failed_list = "\n".join([f"• {name}" for name in failed_teams])
-            text = f"""⚠️ **Турнир создан с ошибками**
+            tournament_name = tournament.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            challonge_url = str(challonge_tournament.get('full_challonge_url', 'N/A')).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            text = f"""⚠️ <b>Турнир создан с ошибками</b>
 
-**Турнир:** {tournament.name}
-**Challonge ID:** {challonge_tournament['id']}
-**URL:** {challonge_tournament.get('full_challonge_url', 'N/A')}
+<b>Турнир:</b> {tournament_name}
+<b>Challonge ID:</b> {challonge_tournament['id']}
+<b>URL:</b> {challonge_url}
 
-**Добавлено команд:** {added_count}/{len(approved_teams)}
+<b>Добавлено команд:</b> {added_count}/{len(approved_teams)}
 
-**Не удалось добавить:**
+<b>Не удалось добавить:</b>
 {failed_list}
 
 Вы можете попробовать синхронизировать участников снова или запустить турнир как есть."""
@@ -297,13 +303,15 @@ Challonge API не настроен.
                 ]
             ]
         else:
-            text = f"""✅ **Сетка успешно создана!**
+            tournament_name = tournament.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            challonge_url = str(challonge_tournament.get('full_challonge_url', 'N/A')).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            text = f"""✅ <b>Сетка успешно создана!</b>
 
-**Турнир:** {tournament.name}
-**Challonge ID:** {challonge_tournament['id']}
-**URL:** {challonge_tournament.get('full_challonge_url', 'N/A')}
+<b>Турнир:</b> {tournament_name}
+<b>Challonge ID:</b> {challonge_tournament['id']}
+<b>URL:</b> {challonge_url}
 
-**Добавлено команд:** {added_count}/{len(approved_teams)}
+<b>Добавлено команд:</b> {added_count}/{len(approved_teams)}
 
 Сетка готова! Теперь вы можете:
 1. Запустить турнир (сгенерирует матчи)
@@ -333,7 +341,7 @@ Challonge API не настроен.
             ]
         
         await safe_edit_message(
-            callback.message, text, parse_mode="Markdown",
+            callback.message, text, parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
         )
         
@@ -353,7 +361,7 @@ Challonge API не настроен.
         ]]
         
         await safe_edit_message(
-            callback.message, text, parse_mode="Markdown",
+            callback.message, text, parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
         )
 
@@ -549,11 +557,14 @@ async def confirm_start_tournament_bracket(callback: CallbackQuery, state: FSMCo
         # Получаем инфо о турнире
         tournament_info = await challonge.get_tournament(tournament.challonge_id)
         
-        text = f"""✅ **Турнир успешно запущен!**
+        tournament_name = tournament.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        challonge_url = str(tournament_info.get('full_challonge_url', 'N/A')).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        
+        text = f"""✅ <b>Турнир успешно запущен!</b>
 
-**Турнир:** {tournament.name}
-**Статус:** В процессе
-**Challonge URL:** {tournament_info.get('full_challonge_url', 'N/A')}
+<b>Турнир:</b> {tournament_name}
+<b>Статус:</b> В процессе
+<b>Challonge URL:</b> {challonge_url}
 
 Сетка сгенерирована! Теперь вы можете:
 • Управлять матчами
@@ -584,7 +595,7 @@ async def confirm_start_tournament_bracket(callback: CallbackQuery, state: FSMCo
         ]
         
         await safe_edit_message(
-            callback.message, text, parse_mode="Markdown",
+            callback.message, text, parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
         )
         
@@ -592,9 +603,10 @@ async def confirm_start_tournament_bracket(callback: CallbackQuery, state: FSMCo
         
     except Exception as e:
         logger.error(f"Ошибка запуска турнира: {e}", exc_info=True)
-        text = f"""❌ **Критическая ошибка**
+        error_msg = str(e).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        text = f"""❌ <b>Критическая ошибка</b>
 
-{str(e)}
+{error_msg}
 
 Обратитесь к разработчику."""
         

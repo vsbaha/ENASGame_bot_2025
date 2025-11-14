@@ -79,7 +79,7 @@ async def process_game_name(message: Message, state: FSMContext):
         # Переходим к максимальному количеству игроков
         text = f"""✅ **Название принято:** {game_name}
 
-� Введите максимальное количество игроков в команде:
+👥 Введите максимальное количество игроков в команде:
 
 ▪️ Минимум: 1 игрок
 ▪️ Максимум: 20 игроков
@@ -160,7 +160,7 @@ async def process_game_max_players(message: Message, state: FSMContext):
 async def set_substitutes_zero(callback: CallbackQuery, state: FSMContext):
     """Установка 0 запасных игроков"""
     await state.update_data(max_substitutes=0)
-    await show_game_confirmation(callback, state)
+    await request_game_icon(callback, state)
 
 
 @router.message(StateFilter(AdminStates.adding_game_max_substitutes))
@@ -179,19 +179,108 @@ async def process_game_max_substitutes(message: Message, state: FSMContext):
     # Сохраняем количество запасных в состояние
     await state.update_data(max_substitutes=max_substitutes)
     
-    # Переходим к подтверждению
-    await show_game_confirmation_as_message(message, state)
+    # Переходим к загрузке иконки
+    await request_game_icon_message(message, state)
+
+
+# ========== ЗАГРУЗКА ИКОНКИ ИГРЫ ==========
+
+async def request_game_icon(callback: CallbackQuery, state: FSMContext):
+    """Запрос иконки игры через callback"""
+    text = """🖼️ **Загрузка иконки игры**
+
+**Шаг 4/4:** Загрузите иконку игры (обязательно)
+
+**Требования:**
+▪️ Формат: JPG, PNG, WebP
+▪️ Размер: до 5 МБ
+▪️ Рекомендуется: квадратное изображение
+
+Отправьте изображение:"""
+    
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                text="❌ Отменить",
+                callback_data="admin:tournaments"
+            )
+        ]
+    ]
+    
+    await safe_edit_message(
+        callback.message, text, parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+    )
+    await state.set_state(AdminStates.adding_game_icon)
+    await callback.answer()
+
+
+async def request_game_icon_message(message: Message, state: FSMContext):
+    """Запрос иконки игры через message"""
+    text = """🖼️ **Загрузка иконки игры**
+
+**Шаг 4/4:** Загрузите иконку игры (обязательно)
+
+**Требования:**
+▪️ Формат: JPG, PNG, WebP
+▪️ Размер: до 5 МБ
+▪️ Рекомендуется: квадратное изображение
+
+Отправьте изображение:"""
+    
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                text="❌ Отменить",
+                callback_data="admin:tournaments"
+            )
+        ]
+    ]
+    
+    await message.answer(
+        text, parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+    )
+    await state.set_state(AdminStates.adding_game_icon)
+
+
+@router.message(StateFilter(AdminStates.adding_game_icon), F.photo)
+async def process_game_icon(message: Message, state: FSMContext):
+    """Обработка иконки игры"""
+    try:
+        # Берём самое большое фото
+        photo = message.photo[-1]
+        
+        # Проверка размера (5 МБ = 5242880 байт)
+        if photo.file_size > 5242880:
+            await message.answer("❌ Файл слишком большой. Максимальный размер: 5 МБ.\n\nПопробуйте другой файл:")
+            return
+        
+        # Сохраняем file_id
+        await state.update_data(icon_file_id=photo.file_id)
+        
+        await message.answer("✅ Иконка сохранена!\n\nПереходим к подтверждению...")
+        
+        # Переходим к подтверждению
+        await show_game_confirmation_as_message(message, state)
+        
+    except Exception as e:
+        logger.error(f"Ошибка загрузки иконки: {e}")
+        await message.answer("❌ Ошибка загрузки. Попробуйте ещё раз.")
 
 
 async def show_game_confirmation(callback: CallbackQuery, state: FSMContext):
     """Показ подтверждения игры через callback"""
     data = await state.get_data()
     
+    icon_status = "✅ Загружена" if data.get('icon_file_id') else "❌ Не загружена"
+    
     text = f"""📋 **Подтверждение добавления игры**
 
 **📝 Название:** {data.get('game_name', '')}
-**� Максимум игроков:** {data.get('max_players', 0)}
+**👥 Максимум игроков:** {data.get('max_players', 0)}
 **🔄 Запасные игроки:** {data.get('max_substitutes', 0)}
+**🖼️ Иконка:** {icon_status}
 
 Добавить эту игру в систему?"""
     
@@ -227,11 +316,14 @@ async def show_game_confirmation_as_message(message: Message, state: FSMContext)
     """Показ подтверждения игры через message"""
     data = await state.get_data()
     
+    icon_status = "✅ Загружена" if data.get('icon_file_id') else "❌ Не загружена"
+    
     text = f"""📋 **Подтверждение добавления игры**
 
 **📝 Название:** {data.get('game_name', '')}
-**� Максимум игроков:** {data.get('max_players', 0)}
+**👥 Максимум игроков:** {data.get('max_players', 0)}
 **🔄 Запасные игроки:** {data.get('max_substitutes', 0)}
+**🖼️ Иконка:** {icon_status}
 
 Добавить эту игру в систему?"""
     
@@ -274,7 +366,7 @@ async def confirm_add_game(callback: CallbackQuery, state: FSMContext):
             short_name=data.get('game_name')[:20],  # Короткое название из первых 20 символов
             max_players=data.get('max_players', 5),
             max_substitutes=data.get('max_substitutes', 0),
-            icon_file_id=None
+            icon_file_id=data.get('icon_file_id')
         )
         
         # Успешное создание
@@ -282,7 +374,7 @@ async def confirm_add_game(callback: CallbackQuery, state: FSMContext):
 
 **📝 Название:** {game.name}
 **🆔 ID:** {game.id}
-**� Короткое название:** {game.short_name}
+**🔤 Короткое название:** {game.short_name}
 **👥 Макс. игроков:** {game.max_players}
 
 Игра готова для использования в турнирах!"""
@@ -462,12 +554,6 @@ async def view_game(callback: CallbackQuery, state: FSMContext):
                 InlineKeyboardButton(
                     text="🔄 Изменить запасных",
                     callback_data=f"admin:edit_game_substitutes_{game_id}"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🖼️ Установить иконку",
-                    callback_data=f"admin:edit_game_icon_{game_id}"
                 )
             ],
             [

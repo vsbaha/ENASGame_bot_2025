@@ -472,8 +472,8 @@ async def export_json_menu(callback: CallbackQuery, state: FSMContext):
         ],
         [
             InlineKeyboardButton(
-                text="� Команды",
-                callback_data="admin:export_teams_json"
+                text="👥 Команды",
+                callback_data="admin:export_teams"
             )
         ],
         [
@@ -484,7 +484,7 @@ async def export_json_menu(callback: CallbackQuery, state: FSMContext):
         ],
         [
             InlineKeyboardButton(
-                text=_("�🔙 Назад к экспорту", "ru"),
+                text=_("🔙 Назад к экспорту", "ru"),
                 callback_data="admin:export_data"
             )
         ]

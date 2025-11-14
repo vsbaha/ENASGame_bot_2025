@@ -13,16 +13,12 @@ logger = logging.getLogger(__name__)
 
 # Команды для обычных пользователей
 USER_COMMANDS = [
-    BotCommand(command="start", description="Запуск бота"),
-    BotCommand(command="help", description="Помощь"),
-    BotCommand(command="menu", description="Главное меню")
+    BotCommand(command="start", description="Запуск бота")
 ]
 
 # Команды для администраторов
 ADMIN_COMMANDS = [
     BotCommand(command="start", description="Запуск бота"),
-    BotCommand(command="help", description="Помощь"),
-    BotCommand(command="menu", description="Главное меню"),
     BotCommand(command="admin", description="Админ-панель")
 ]
 
@@ -30,13 +26,6 @@ ADMIN_COMMANDS = [
 async def set_admin_commands(bot: Bot, user_id: int) -> bool:
     """
     Устанавливает команды администратора для пользователя
-    
-    Args:
-        bot: Экземпляр бота
-        user_id: ID пользователя в Telegram
-        
-    Returns:
-        bool: True если команды установлены успешно, False в случае ошибки
     """
     try:
         await bot.set_my_commands(
@@ -53,13 +42,6 @@ async def set_admin_commands(bot: Bot, user_id: int) -> bool:
 async def remove_admin_commands(bot: Bot, user_id: int) -> bool:
     """
     Убирает команды администратора для пользователя (возвращает к обычным командам)
-    
-    Args:
-        bot: Экземпляр бота
-        user_id: ID пользователя в Telegram
-        
-    Returns:
-        bool: True если команды удалены успешно, False в случае ошибки
     """
     try:
         await bot.set_my_commands(
@@ -76,9 +58,6 @@ async def remove_admin_commands(bot: Bot, user_id: int) -> bool:
 async def update_all_admin_commands(bot: Bot) -> None:
     """
     Обновляет команды для всех администраторов в системе
-    
-    Args:
-        bot: Экземпляр бота
     """
     try:
         from database.repositories.user_repository import UserRepository

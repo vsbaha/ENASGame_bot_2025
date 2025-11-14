@@ -39,13 +39,7 @@ def get_admin_main_keyboard() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
-                text="� Журнал действий",
-                callback_data="admin:view_logs"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text="�🔙 Назад в главное меню",
+                text="🔙 Назад в главное меню",
                 callback_data="main_menu"
             )
         ]
@@ -488,7 +482,7 @@ def get_tournament_settings_keyboard(tournaments=None) -> InlineKeyboardMarkup:
     # Кнопка назад
     keyboard.append([
         InlineKeyboardButton(
-            text="� Назад к турнирам",
+            text="🔙 Назад к турнирам",
             callback_data="admin:tournaments"
         )
     ])

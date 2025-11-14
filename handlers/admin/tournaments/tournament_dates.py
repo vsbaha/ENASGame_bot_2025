@@ -10,6 +10,7 @@ from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 
 from utils.message_utils import safe_edit_message
+from utils.datetime_utils import format_datetime_for_user
 from ..states import AdminStates
 from database.repositories import TournamentRepository
 from database.models import TournamentFormat
@@ -722,20 +723,20 @@ async def show_tournament_confirmation(callback: CallbackQuery, state: FSMContex
     channels_text = ""
     if required_channels:
         channels_list = "\n".join([f"• @{ch}" for ch in required_channels])
-        channels_text = f"\n\n**� Обязательные каналы** ({len(required_channels)}):\n{channels_list}"
+        channels_text = f"\n\n**📢 Обязательные каналы** ({len(required_channels)}):\n{channels_list}"
     
-    text = f"""�📋 **Подтверждение создания турнира**
+    text = f"""📋 **Подтверждение создания турнира**
 
 **📝 Название:** {data.get('tournament_name', '')}
 **📄 Описание:** {data.get('tournament_description', '')[:100]}{"..." if len(data.get('tournament_description', '')) > 100 else ""}
 **🎮 Игра:** {data.get('tournament_game_name', '')}
 **🏆 Формат:** {data.get('tournament_format_display', '')}
-**👥 Максимум команд:** {data.get('tournament_max_teams', '')}
+**👥 Команд:** {data.get('tournament_max_teams', 0)}
 
-**📅 Даты:**
-🟢 Начало регистрации: {reg_start.strftime("%d.%m.%Y %H:%M")}
-🔴 Окончание регистрации: {reg_end.strftime("%d.%m.%Y %H:%M")}
-🏁 Начало турнира: {tournament_start.strftime("%d.%m.%Y %H:%M")}
+**📅 Даты (UTC):**
+🟢 Начало регистрации: {format_datetime_for_user(reg_start, 'UTC')}
+🔴 Окончание регистрации: {format_datetime_for_user(reg_end, 'UTC')}
+🏁 Начало турнира: {format_datetime_for_user(tournament_start, 'UTC')}
 
 **📋 Правила:** {"Не указаны" if not data.get('tournament_rules', '') else f"{data.get('tournament_rules', '')[:50]}..."}{channels_text}
 
@@ -784,9 +785,9 @@ async def show_tournament_confirmation_as_message(message: Message, state: FSMCo
     channels_text = ""
     if required_channels:
         channels_list = "\n".join([f"• @{ch}" for ch in required_channels])
-        channels_text = f"\n\n**� Обязательные каналы** ({len(required_channels)}):\n{channels_list}"
+        channels_text = f"\n\n**📢 Обязательные каналы** ({len(required_channels)}):\n{channels_list}"
     
-    text = f"""�📋 **Подтверждение создания турнира**
+    text = f"""📋 **Подтверждение создания турнира**
 
 **📝 Название:** {data.get('tournament_name', '')}
 **📄 Описание:** {data.get('tournament_description', '')[:100]}{"..." if len(data.get('tournament_description', '')) > 100 else ""}
@@ -794,10 +795,10 @@ async def show_tournament_confirmation_as_message(message: Message, state: FSMCo
 **🏆 Формат:** {data.get('tournament_format_display', '')}
 **👥 Максимум команд:** {data.get('tournament_max_teams', '')}
 
-**📅 Даты:**
-🟢 Начало регистрации: {reg_start.strftime("%d.%m.%Y %H:%M")}
-🔴 Окончание регистрации: {reg_end.strftime("%d.%m.%Y %H:%M")}
-🏁 Начало турнира: {tournament_start.strftime("%d.%m.%Y %H:%M")}
+**📅 Даты (UTC):**
+🟢 Начало регистрации: {format_datetime_for_user(reg_start, 'UTC')}
+🔴 Окончание регистрации: {format_datetime_for_user(reg_end, 'UTC')}
+🏁 Начало турнира: {format_datetime_for_user(tournament_start, 'UTC')}
 
 **📋 Правила:** {"Не указаны" if not data.get('tournament_rules', '') else f"{data.get('tournament_rules', '')[:50]}..."}{channels_text}
 

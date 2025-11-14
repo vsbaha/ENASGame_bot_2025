@@ -19,14 +19,7 @@ team_registration_router = Router()
 logger = logging.getLogger(__name__)
 
 
-# ========== СОЗДАНИЕ КОМАНДЫ - ШАГ 3: ЛОГОТИП (ОПЦИОНАЛЬНО) ==========
-
-@team_registration_router.callback_query(F.data == "team:skip_logo")
-async def skip_logo(callback: CallbackQuery, state: FSMContext):
-    """Пропуск загрузки логотипа"""
-    await state.update_data(logo_file_id=None)
-    await start_adding_main_players(callback, state)
-
+# ========== СОЗДАНИЕ КОМАНДЫ - ШАГ 3: ЛОГОТИП (ОБЯЗАТЕЛЬНО) ==========
 
 @team_registration_router.message(StateFilter(UserStates.registering_team_uploading_logo), F.photo)
 async def process_team_logo(message: Message, state: FSMContext):
@@ -38,6 +31,19 @@ async def process_team_logo(message: Message, state: FSMContext):
         # Проверка размера (5 МБ = 5242880 байт)
         if photo.file_size > 5242880:
             await message.answer("❌ Файл слишком большой. Максимальный размер: 5 МБ.\n\nПопробуйте другой файл:")
+            return
+        
+        # Проверяем что лого квадратное (допуск ±10%)
+        width = photo.width
+        height = photo.height
+        ratio = width / height if height > 0 else 0
+        
+        if ratio < 0.9 or ratio > 1.1:  # Не квадратное (допуск 10%)
+            await message.answer(
+                f"⚠️ Логотип должен быть квадратным!\n\n"
+                f"Текущее соотношение: {width}x{height}\n"
+                f"Пожалуйста, загрузите квадратное изображение (например, 512x512, 1024x1024)."
+            )
             return
         
         # Сохраняем file_id
@@ -196,6 +202,17 @@ async def add_main_player(message: Message, state: FSMContext):
         if any(p['game_id'] == game_id for p in main_players):
             await message.answer(f"❌ Игрок с Game ID '{game_id}' уже добавлен.")
             return
+        
+        # Проверка что игрок не занят в другой команде турнира
+        tournament_id = data.get('tournament_id')
+        if tournament_id:
+            is_taken = await PlayerRepository.is_game_id_taken_in_tournament(tournament_id, game_id)
+            if is_taken:
+                await message.answer(
+                    f"❌ Игрок с Game ID '{game_id}' уже зарегистрирован в другой команде этого турнира!\n\n"
+                    "Один игрок может участвовать только в одной команде турнира."
+                )
+                return
         
         # Добавляем игрока
         main_players.append({
@@ -497,6 +514,17 @@ async def add_substitute_player(message: Message, state: FSMContext):
             await message.answer(f"❌ Игрок с Game ID '{game_id}' уже в запасных.")
             return
         
+        # Проверка что игрок не занят в другой команде турнира
+        tournament_id = data.get('tournament_id')
+        if tournament_id:
+            is_taken = await PlayerRepository.is_game_id_taken_in_tournament(tournament_id, game_id)
+            if is_taken:
+                await message.answer(
+                    f"❌ Игрок с Game ID '{game_id}' уже зарегистрирован в другой команде этого турнира!\n\n"
+                    "Один игрок может участвовать только в одной команде турнира."
+                )
+                return
+        
         # Добавляем игрока
         substitutes.append({
             'nickname': nickname,
@@ -631,6 +659,10 @@ async def show_team_confirmation(callback: CallbackQuery, state: FSMContext):
     try:
         data = await state.get_data()
         
+        # Логируем данные для отладки
+        logger.info(f"Подтверждение команды, данные state: {data.keys()}")
+        logger.info(f"tournament_id={data.get('tournament_id')}, team_name={data.get('team_name')}")
+        
         team_name = data.get('team_name')
         tournament_name = data.get('tournament_name')
         game_name = data.get('game_name')
@@ -706,11 +738,32 @@ async def create_team_final(callback: CallbackQuery, state: FSMContext):
         user = await UserRepository.get_by_telegram_id(callback.from_user.id)
         data = await state.get_data()
         
+        # Детальное логирование для отладки
+        logger.info(f"Финальное создание команды, все данные state: {data}")
+        
         tournament_id = data.get('tournament_id')
         team_name = data.get('team_name')
         logo_file_id = data.get('logo_file_id')
         main_players = data.get('main_players', [])
         substitutes = data.get('substitutes', [])
+        
+        # Проверяем что tournament_id не None
+        if not tournament_id:
+            logger.error(f"tournament_id is None! Full state data: {data}")
+            await callback.answer("❌ Ошибка: турнир не найден. Начните регистрацию заново.", show_alert=True)
+            await state.clear()
+            return
+        
+        # Проверяем что у капитана еще нет команды на этот турнир
+        is_already_registered = await TeamRepository.is_captain_registered(user.id, tournament_id)
+        if is_already_registered:
+            await callback.answer(
+                "❌ Вы уже зарегистрировали команду на этот турнир!\n\n"
+                "Один капитан может зарегистрировать только одну команду на турнир.",
+                show_alert=True
+            )
+            await state.clear()
+            return
         
         # Создаём команду
         team = await TeamRepository.create_team(
@@ -787,6 +840,44 @@ async def create_team_final(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         logger.info(f"Команда создана: {team.name} (ID: {team.id}) пользователем {user.telegram_id}")
         await callback.answer("✅ Команда создана!", show_alert=True)
+        
+        # Отправляем уведомления администраторам о новой команде
+        from config.settings import settings
+        tournament_name_escaped = data.get('tournament_name', 'Неизвестный турнир').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        team_name_escaped = team_name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        
+        admin_text = f"""🔔 <b>Новая заявка на участие!</b>
+
+👥 <b>Команда:</b> {team_name_escaped}
+🏆 <b>Турнир:</b> {tournament_name_escaped}
+👤 <b>Капитан:</b> {user.full_name or user.username or 'Unknown'}
+
+<b>Состав:</b>
+▪️ Основных игроков: {len(main_players)}
+▪️ Запасных игроков: {len(substitutes)}
+
+⏳ Ожидает проверки администратором."""
+        
+        admin_keyboard = [
+            [
+                InlineKeyboardButton(
+                    text="👁️ Проверить заявку",
+                    callback_data=f"admin:review_team_{team.id}"
+                )
+            ]
+        ]
+        
+        for admin_id in settings.admin_ids:
+            try:
+                await callback.bot.send_message(
+                    chat_id=admin_id,
+                    text=admin_text,
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=admin_keyboard)
+                )
+                logger.info(f"Уведомление о команде {team.id} отправлено админу {admin_id}")
+            except Exception as e:
+                logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
         
     except Exception as e:
         logger.error(f"Ошибка финального создания команды: {e}")

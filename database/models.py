@@ -56,6 +56,7 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(20), nullable=False, default=UserRole.USER.value)
     region: Mapped[str] = mapped_column(String(20), nullable=False, default="kg")
     language: Mapped[str] = mapped_column(String(5), nullable=False, default="ru")
+    timezone: Mapped[str] = mapped_column(String(50), nullable=False, default="Asia/Bishkek")
     is_blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

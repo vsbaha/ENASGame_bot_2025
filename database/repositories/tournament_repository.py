@@ -78,7 +78,8 @@ class TournamentRepository:
                 select(Tournament)
                 .options(
                     selectinload(Tournament.game),
-                    selectinload(Tournament.creator)
+                    selectinload(Tournament.creator),
+                    selectinload(Tournament.teams)
                 )
                 .where(Tournament.id == tournament_id)
             )
@@ -107,6 +108,7 @@ class TournamentRepository:
             stmt = (
                 select(Tournament)
                 .options(selectinload(Tournament.game))
+                .options(selectinload(Tournament.teams))
                 .where(and_(*conditions))
                 .order_by(Tournament.registration_end.asc())
             )
@@ -124,7 +126,8 @@ class TournamentRepository:
                 select(Tournament)
                 .options(
                     selectinload(Tournament.game),
-                    selectinload(Tournament.creator)
+                    selectinload(Tournament.creator),
+                    selectinload(Tournament.teams)
                 )
                 .order_by(Tournament.created_at.desc())
             )
@@ -140,6 +143,7 @@ class TournamentRepository:
             stmt = (
                 select(Tournament)
                 .options(selectinload(Tournament.game))
+                .options(selectinload(Tournament.teams))
                 .order_by(Tournament.created_at.desc())
                 .limit(limit)
                 .offset(offset)
@@ -157,6 +161,7 @@ class TournamentRepository:
             stmt = (
                 select(Tournament)
                 .options(selectinload(Tournament.game))
+                .options(selectinload(Tournament.teams))
                 .where(Tournament.status == status.value)
                 .order_by(Tournament.created_at.desc())
             )
@@ -250,6 +255,7 @@ class TournamentRepository:
             stmt = (
                 select(Tournament)
                 .options(selectinload(Tournament.game))
+                .options(selectinload(Tournament.teams))
                 .where(Tournament.id == tournament_id)
             )
             

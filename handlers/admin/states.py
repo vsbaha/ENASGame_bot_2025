@@ -62,6 +62,7 @@ class AdminStates(StatesGroup):
     adding_game_name = State()
     adding_game_max_players = State()
     adding_game_max_substitutes = State()
+    adding_game_icon = State()
     editing_game = State()
     editing_game_name = State()
     editing_game_short_name = State()

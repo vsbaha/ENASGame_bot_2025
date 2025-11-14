@@ -198,6 +198,7 @@ async def view_team_applications(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.regexp(r"^admin:review_team_\d+$"))
 async def review_team_application(callback: CallbackQuery, state: FSMContext):
+    from database.repositories import PlayerRepository
     team_id = int(callback.data.split("_")[-1])
     team = await _get_team_or_answer_cb(callback, team_id)
     if not team:
@@ -205,8 +206,41 @@ async def review_team_application(callback: CallbackQuery, state: FSMContext):
 
     captain = await UserRepository.get_by_id(team.captain_id)
     captain_name = _safe(getattr(captain, "full_name", None), "Неизвестно")
+    
+    # Получаем игроков для полного отображения
+    main_players = await PlayerRepository.get_main_players(team_id)
+    substitute_players = await PlayerRepository.get_substitute_players(team_id)
+    
+    # Формируем детальный текст с игроками
+    players_text = ""
+    if main_players:
+        players_text += "\n**Основной состав:**\n"
+        for i, player in enumerate(main_players, 1):
+            captain_mark = " (Капитан)" if i == 1 else ""
+            players_text += f"{i}. {player.nickname} (`{player.game_id}`){captain_mark}\n"
+    
+    if substitute_players:
+        players_text += "\n**Запасные игроки:**\n"
+        for i, player in enumerate(substitute_players, 1):
+            players_text += f"{i}. {player.nickname} (`{player.game_id}`)\n"
+    
+    # Формируем ссылку на капитана
+    captain_link = f"[Написать капитану](tg://user?id={captain.telegram_id})" if captain else "Не найден"
+    
+    text = f"""
+👥 Заявка на регистрацию команды
 
-    text = render_application_text(team, captain_name)
+📋 Название: {team.name}
+👤 Капитан: {captain_name}
+💬 Связь: {captain_link}
+🏆 Турнир: {tournament_name(team)}
+👥 Участников: {len(main_players) + len(substitute_players)}
+📅 Дата подачи: {created_at_text(team)}
+{players_text}
+
+Выберите действие:
+"""
+    
     await safe_edit_message(callback.message, text, parse_mode="Markdown", reply_markup=get_team_action_keyboard(team_id))
     await callback.answer()
 
@@ -220,6 +254,30 @@ async def approve_team(callback: CallbackQuery, state: FSMContext):
 
     try:
         await TeamRepository.update_status(team_id, "approved")
+        
+        # Отправляем уведомление капитану
+        from database.repositories import UserRepository
+        captain = await UserRepository.get_by_id(team.captain_id)
+        if captain:
+            team_name_escaped = team.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            captain_text = f"""✅ <b>Ваша команда одобрена!</b>
+
+👥 <b>Команда:</b> {team_name_escaped}
+🏆 <b>Турнир:</b> {team.tournament.name if hasattr(team, 'tournament') and team.tournament else 'Неизвестный'}
+
+🎉 Поздравляем! Ваша заявка на участие в турнире одобрена.
+Следите за расписанием матчей."""
+            
+            try:
+                await callback.bot.send_message(
+                    chat_id=captain.telegram_id,
+                    text=captain_text,
+                    parse_mode="HTML"
+                )
+                logger.info(f"Уведомление об одобрении отправлено капитану {captain.telegram_id}")
+            except Exception as e:
+                logger.error(f"Ошибка отправки уведомления капитану {captain.telegram_id}: {e}")
+        
         text = f"""
 ✅ Команда одобрена!
 
@@ -379,6 +437,7 @@ async def view_blocked_teams(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.regexp(r"^admin:team_details_\d+$"))
 async def view_team_details(callback: CallbackQuery, state: FSMContext):
+    from database.repositories import PlayerRepository
     team_id = int(callback.data.split("_")[-1])
     team = await _get_team_or_answer_cb(callback, team_id)
     if not team:
@@ -386,8 +445,40 @@ async def view_team_details(callback: CallbackQuery, state: FSMContext):
 
     captain = await UserRepository.get_by_id(team.captain_id)
     captain_name = _safe(getattr(captain, "full_name", None), "Неизвестно")
+    
+    # Получаем игроков для полного отображения
+    main_players = await PlayerRepository.get_main_players(team_id)
+    substitute_players = await PlayerRepository.get_substitute_players(team_id)
+    
+    # Формируем детальный текст с игроками
+    players_text = ""
+    if main_players:
+        players_text += "\n**Основной состав:**\n"
+        for i, player in enumerate(main_players, 1):
+            captain_mark = " (Капитан)" if i == 1 else ""
+            players_text += f"{i}. {player.nickname} (`{player.game_id}`){captain_mark}\n"
+    
+    if substitute_players:
+        players_text += "\n**Запасные игроки:**\n"
+        for i, player in enumerate(substitute_players, 1):
+            players_text += f"{i}. {player.nickname} (`{player.game_id}`)\n"
+    
+    # Формируем ссылку на капитана
+    captain_link = f"[Написать капитану](tg://user?id={captain.telegram_id})" if captain else "Не найден"
+    
+    text = f"""
+👥 Информация о команде
 
-    text = render_team_card(team, captain_name)
+📋 Название: {team.name}
+👤 Капитан: {captain_name}
+💬 Связь: {captain_link}
+🏆 Турнир: {tournament_name(team)}
+👥 Участников: {len(main_players) + len(substitute_players)}
+📊 Статус: {status_text(team)}
+📅 Создана: {created_at_text(team)}
+{players_text}
+"""
+
     await safe_edit_message(
         callback.message,
         text,

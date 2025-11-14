@@ -160,7 +160,8 @@ async def view_team_details(callback: CallbackQuery, state: FSMContext):
         
         if main_players:
             for i, player in enumerate(main_players, 1):
-                text += f"{i}. {player.nickname} (`{player.game_id}`)\n"
+                captain_mark = " (Капитан)" if i == 1 else ""
+                text += f"{i}. {player.nickname} (`{player.game_id}`){captain_mark}\n"
         else:
             text += "Нет игроков\n"
         
@@ -302,6 +303,54 @@ async def already_registered_handler(callback: CallbackQuery):
     )
 
 
+@teams_router.callback_query(F.data.startswith("team:recheck_channels_"))
+async def recheck_channels_subscription(callback: CallbackQuery, state: FSMContext):
+    """Повторная проверка подписки на обязательные каналы"""
+    try:
+        tournament_id = int(callback.data.split("_")[2])
+        tournament = await TournamentRepository.get_by_id(tournament_id)
+        
+        if not tournament:
+            await callback.answer("❌ Турнир не найден", show_alert=True)
+            return
+        
+        required_channels = tournament.required_channels_list
+        
+        if not required_channels:
+            # Если каналов нет, просто продолжаем регистрацию
+            # Перенаправляем на select_tournament
+            callback.data = f"team:select_tournament_{tournament_id}"
+            await select_tournament(callback, state)
+            return
+        
+        from utils.channel_checker import check_all_channels_subscription, format_channel_name
+        
+        # Проверяем подписку снова
+        is_subscribed, unsubscribed = await check_all_channels_subscription(
+            callback.bot,
+            callback.from_user.id,
+            required_channels
+        )
+        
+        if is_subscribed:
+            # Все каналы подписаны! Продолжаем регистрацию
+            await callback.answer("✅ Проверка пройдена!", show_alert=True)
+            # Перенаправляем на select_tournament для продолжения
+            callback.data = f"team:select_tournament_{tournament_id}"
+            await select_tournament(callback, state)
+        else:
+            # Всё ещё не подписаны
+            channels_list = ", ".join([format_channel_name(ch) for ch in unsubscribed])
+            await callback.answer(
+                f"❌ Вы всё ещё не подписаны на: {channels_list}",
+                show_alert=True
+            )
+        
+    except Exception as e:
+        logger.error(f"Ошибка повторной проверки подписки: {e}")
+        await callback.answer("❌ Ошибка проверки", show_alert=True)
+
+
 # ========== СОЗДАНИЕ КОМАНДЫ - ШАГ 2: ВВОД НАЗВАНИЯ ==========
 
 @teams_router.callback_query(F.data.startswith("team:select_tournament_"))
@@ -326,49 +375,76 @@ async def select_tournament(callback: CallbackQuery, state: FSMContext):
             await callback.answer("❌ Турнир уже заполнен", show_alert=True)
             return
         
+        # Проверяем что пользователь еще не зарегистрирован на этот турнир
+        user = await UserRepository.get_by_telegram_id(callback.from_user.id)
+        is_already_registered = await TeamRepository.is_captain_registered(user.id, tournament_id)
+        if is_already_registered:
+            await callback.answer(
+                "❌ Вы уже зарегистрировали команду на этот турнир!\n\n"
+                "Один капитан может зарегистрировать только одну команду на турнир.",
+                show_alert=True
+            )
+            return
+        
         # ПРОВЕРКА ПОДПИСКИ НА ОБЯЗАТЕЛЬНЫЕ КАНАЛЫ
-        if tournament.required_channels:
-            from aiogram import Bot
-            bot = callback.bot
+        required_channels = tournament.required_channels_list
+        if required_channels:
+            from utils.channel_checker import check_all_channels_subscription, format_channel_url, format_channel_name
             
-            not_subscribed = []
-            for channel_username in tournament.required_channels:
-                try:
-                    # Проверяем подписку пользователя на канал
-                    member = await bot.get_chat_member(f"@{channel_username}", callback.from_user.id)
-                    
-                    # Статусы: creator, administrator, member - подписан
-                    # left, kicked - не подписан
-                    if member.status in ['left', 'kicked']:
-                        not_subscribed.append(channel_username)
-                        
-                except Exception as e:
-                    logger.warning(f"Ошибка проверки подписки на @{channel_username}: {e}")
-                    # Если канал недоступен или ошибка, добавляем в список
-                    not_subscribed.append(channel_username)
+            # Проверяем подписку на все каналы
+            is_subscribed, unsubscribed = await check_all_channels_subscription(
+                callback.bot,
+                callback.from_user.id,
+                required_channels
+            )
             
             # Если есть неподписанные каналы, блокируем регистрацию
-            if not_subscribed:
-                channels_list = "\n".join([f"• @{ch}" for ch in not_subscribed])
-                text = f"""❌ **Требуется подписка**
-
-Для участия в турнире **"{tournament.name}"** необходимо подписаться на следующие каналы:
-
-{channels_list}
-
-После подписки попробуйте снова."""
+            if not is_subscribed:
+                tournament_name = tournament.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
                 
-                keyboard = [
+                text = f"""⚠️ <b>Требуется подписка</b>
+
+Для участия в турнире <b>"{tournament_name}"</b> необходимо подписаться на следующие каналы:
+
+"""
+                
+                # Создаем клавиатуру с кнопками подписки
+                keyboard = []
+                for channel in unsubscribed:
+                    channel_display = format_channel_name(channel)
+                    channel_url = format_channel_url(channel)
+                    
+                    text += f"• {channel_display}\n"
+                    
+                    keyboard.append([
+                        InlineKeyboardButton(
+                            text=f"📢 {channel_display}",
+                            url=channel_url
+                        )
+                    ])
+                
+                text += "\n<b>После подписки нажмите кнопку ниже для повторной проверки:</b>"
+                
+                # Сохраняем tournament_id для повторной проверки
+                await state.update_data(checking_tournament_id=tournament_id)
+                
+                keyboard.extend([
+                    [
+                        InlineKeyboardButton(
+                            text="✅ Я подписался, проверить снова",
+                            callback_data=f"team:recheck_channels_{tournament_id}"
+                        )
+                    ],
                     [
                         InlineKeyboardButton(
                             text="🔙 Назад к выбору турнира",
                             callback_data="team:create"
                         )
                     ]
-                ]
+                ])
                 
                 await safe_edit_message(
-                    callback.message, text, parse_mode="Markdown",
+                    callback.message, text, parse_mode="HTML",
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
                 )
                 await callback.answer("❌ Подпишитесь на обязательные каналы", show_alert=True)
@@ -449,26 +525,22 @@ async def process_team_name(message: Message, state: FSMContext):
         # Сохраняем название
         await state.update_data(team_name=team_name)
         
-        # Переходим к логотипу (опционально)
+        # Переходим к логотипу (обязательно)
         text = f"""✅ **Название принято:** {team_name}
 
-**Шаг 3/5:** Логотип команды (опционально)
+**Шаг 3/5:** Логотип команды (обязательно)
 
-Вы можете загрузить логотип вашей команды или пропустить этот шаг.
+⚠️ Загрузите логотип вашей команды.
+Логотип должен быть квадратным!
 
 Формат: JPG, PNG
-Размер: до 5 МБ"""
+Размер: до 5 МБ
+Пример размера: 512x512, 1024x1024"""
         
         keyboard = [
             [
                 InlineKeyboardButton(
-                    text="⏭️ Пропустить",
-                    callback_data="team:skip_logo"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="❌ Отменить",
+                    text="❌ Отменить регистрацию",
                     callback_data="menu:my_teams"
                 )
             ]
