@@ -209,17 +209,17 @@ def get_moderation_keyboard(team_id: int, localization: Localization) -> InlineK
 
 
 def get_profile_keyboard(localization: Localization) -> InlineKeyboardMarkup:
-    """Клавиатура для профиля с кнопками смены языка и региона"""
+    """Клавиатура для профиля с кнопками смены региона"""
     builder = InlineKeyboardBuilder()
     
-    # Кнопки для смены языка и региона
-    change_language_text = localization.get_text("profile.change_language")
+    # TODO: В будущем вернуть кнопку смены языка
+    # Пока только смена региона
     change_region_text = localization.get_text("profile.change_region")
     back_text = localization.get_text("buttons.back")
     
-    builder.button(text=change_language_text, callback_data="profile:change_language")
+    # builder.button(text=change_language_text, callback_data="profile:change_language")  # Временно скрыто
     builder.button(text=change_region_text, callback_data="profile:change_region")
     builder.button(text=back_text, callback_data="back_to_menu")
     
-    builder.adjust(2, 1)  # 2 кнопки в первом ряду, 1 во втором
+    builder.adjust(1)  # По 1 кнопке в ряду
     return builder.as_markup()

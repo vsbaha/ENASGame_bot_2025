@@ -32,27 +32,26 @@ async def start_command(message: Message, state: FSMContext):
     
     if not user:
         # Новый пользователь - создаем с настройками по умолчанию
+        # TODO: В будущем вернуть выбор языка - пока только русский
         user = await UserRepository.create_user(
             telegram_id=message.from_user.id,
             username=message.from_user.username,
             full_name=f"{message.from_user.first_name or ''} {message.from_user.last_name or ''}".strip(),
-            language=config.DEFAULT_LANGUAGE,
+            language="ru",  # Временно захардкожен русский
             region=config.DEFAULT_REGION
         )
         
         # Устанавливаем язык для текущей сессии
         localization.set_language(user.language)
         
-        # Приветствуем нового пользователя
+        # Приветствуем нового пользователя и сразу показываем главное меню
         welcome_text = localization.get_text("start.welcome")
-        language_text = localization.get_text("start.choose_language")
         
-        await message.answer(welcome_text)
         await message.answer(
-            language_text,
-            reply_markup=get_language_keyboard()
+            welcome_text,
+            reply_markup=get_main_menu_keyboard(localization)
         )
-        await state.set_state(UserStates.choosing_language)
+        await state.set_state(UserStates.main_menu)
     else:
         # Существующий пользователь - показываем главное меню
         localization.set_language(user.language)
