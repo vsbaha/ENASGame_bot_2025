@@ -667,3 +667,106 @@ async def edit_tournament_rules_menu(callback: CallbackQuery, state: FSMContext)
     except Exception as e:
         logger.error(f"Ошибка меню правил турнира: {e}")
         await callback.answer("❌ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("admin:view_bracket_"))
+async def view_tournament_bracket(callback: CallbackQuery, state: FSMContext):
+    """Просмотр сетки турнира"""
+    await callback.answer()
+    
+    try:
+        tournament_id = int(callback.data.split("_")[-1])
+        
+        # Получаем турнир
+        tournament = await TournamentRepository.get_by_id(tournament_id)
+        if not tournament:
+            await callback.answer("❌ Турнир не найден", show_alert=True)
+            return
+        
+        # Получаем все матчи турнира
+        from database.repositories import MatchRepository
+        from database.models import MatchStatus
+        
+        all_matches = await MatchRepository.get_tournament_matches(tournament_id)
+        
+        if not all_matches:
+            text = f"""🏆 <b>Сетка турнира</b>
+
+<b>Турнир:</b> {escape_html(tournament.name)}
+
+❌ <b>Матчи еще не созданы</b>
+
+Сетка будет доступна после генерации турнира в Challonge."""
+            
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🔙 Назад",
+                        callback_data=f"admin:manage_tournament_{tournament_id}"
+                    )
+                ]
+            ])
+            
+            await safe_edit_message(callback.message, text, parse_mode="HTML", reply_markup=keyboard)
+            return
+        
+        # Группируем матчи по раундам
+        matches_by_round = {}
+        for match in all_matches:
+            round_num = match.round_number
+            if round_num not in matches_by_round:
+                matches_by_round[round_num] = []
+            matches_by_round[round_num].append(match)
+        
+        # Формируем текст сетки
+        text = f"""🏆 <b>Сетка турнира</b>
+
+<b>Турнир:</b> {escape_html(tournament.name)}
+<b>Всего матчей:</b> {len(all_matches)}
+
+"""
+        
+        # Выводим матчи по раундам
+        for round_num in sorted(matches_by_round.keys()):
+            round_matches = matches_by_round[round_num]
+            
+            # Определяем название раунда
+            from handlers.admin.matches.match_manager import get_round_name
+            round_name = get_round_name(round_num, len(matches_by_round))
+            
+            text += f"<b>{round_name}</b>\n"
+            
+            for match in round_matches:
+                team1_name = escape_html(match.team1.name if match.team1 else "TBD")
+                team2_name = escape_html(match.team2.name if match.team2 else "TBD")
+                
+                if match.status == MatchStatus.COMPLETED.value:
+                    score = f"{match.team1_score or 0}:{match.team2_score or 0}"
+                    winner_name = escape_html(match.winner.name if match.winner else "N/A")
+                    text += f"   ✅ {team1_name} <b>{score}</b> {team2_name}\n"
+                    text += f"      🏆 Победитель: {winner_name}\n"
+                elif match.status == MatchStatus.IN_PROGRESS.value:
+                    text += f"   🎮 {team1_name} vs {team2_name}\n"
+                else:
+                    text += f"   ⏳ {team1_name} vs {team2_name}\n"
+            
+            text += "\n"
+        
+        # Обрезаем если текст слишком длинный
+        if len(text) > 4000:
+            text = text[:3900] + "\n\n... <i>(список сокращен)</i>"
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔙 Назад",
+                    callback_data=f"admin:manage_tournament_{tournament_id}"
+                )
+            ]
+        ])
+        
+        await safe_edit_message(callback.message, text, parse_mode="HTML", reply_markup=keyboard)
+        
+    except Exception as e:
+        logger.error(f"Ошибка просмотра сетки турнира: {e}")
+        await callback.answer("❌ Ошибка загрузки сетки", show_alert=True)

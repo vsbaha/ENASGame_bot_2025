@@ -285,28 +285,63 @@ async def approve_team(callback: CallbackQuery, state: FSMContext):
         admin = await UserRepository.get_by_telegram_id(callback.from_user.id)
         admin_name = escape_html(admin.full_name or admin.username or callback.from_user.username or "Администратор")
         
-        # Редактируем сообщение в чате - убираем кнопки и добавляем статус
+        # Получаем полный состав команды
+        from database.repositories import PlayerRepository
+        main_players = await PlayerRepository.get_main_players(team_id)
+        substitute_players = await PlayerRepository.get_substitute_players(team_id)
+        
+        main_roster = "\n".join([f"   {i}. {escape_html(p.nickname)} ({escape_html(p.game_id)})" 
+                                  for i, p in enumerate(main_players, 1)])
+        
+        substitute_roster = ""
+        if substitute_players:
+            substitute_roster = "\n\n<b>Запасные:</b>\n" + "\n".join([f"   {i}. {escape_html(p.nickname)} ({escape_html(p.game_id)})" 
+                                                                        for i, p in enumerate(substitute_players, 1)])
+        
+        # Формируем полное сообщение с составом
         team_name_escaped = escape_html(team.name)
         tournament_name_escaped = escape_html(team.tournament.name if hasattr(team, 'tournament') and team.tournament else 'Неизвестный')
+        captain_name = escape_html(team.captain.full_name or team.captain.username if hasattr(team, 'captain') and team.captain else 'Unknown')
         
         updated_text = f"""✅ <b>Заявка одобрена</b>
+<b>ID команды: #{team.id}</b>
 
 👥 <b>Команда:</b> {team_name_escaped}
 🏆 <b>Турнир:</b> {tournament_name_escaped}
+👤 <b>Капитан:</b> {captain_name}
 
-✅ <b>Одобрено администратором:</b> {admin_name}
-📅 {callback.message.date.strftime('%d.%m.%Y %H:%M')}"""
+<b>Основной состав:</b>
+{main_roster}{substitute_roster}
+
+✅ <b>Одобрено:</b> {admin_name}"""
+        
+        # Создаем клавиатуру с кнопкой связи с капитаном
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        approved_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="💬 Связь с капитаном",
+                    url=f"tg://user?id={captain.telegram_id}"
+                )
+            ]
+        ])
         
         try:
-            await callback.message.edit_text(
-                text=updated_text,
-                parse_mode="HTML"
-            )
-        except:
             await callback.message.edit_caption(
                 caption=updated_text,
-                parse_mode="HTML"
+                parse_mode="HTML",
+                reply_markup=approved_keyboard
             )
+        except:
+            # Если это не фото, пробуем редактировать текст
+            try:
+                await callback.message.edit_text(
+                    text=updated_text,
+                    parse_mode="HTML",
+                    reply_markup=approved_keyboard
+                )
+            except Exception as e:
+                logger.error(f"Ошибка редактирования сообщения: {e}")
         
         await callback.answer("✅ Команда одобрена")
     except Exception as e:
@@ -399,42 +434,15 @@ async def process_team_rejection_reason(message: Message, state: FSMContext):
             except Exception as e:
                 logger.error(f"Ошибка отправки уведомления капитану: {e}")
         
-        # Обновляем сообщение в админ-чате
-        admin = await UserRepository.get_by_telegram_id(message.from_user.id)
-        admin_name = escape_html(admin.full_name or admin.username or message.from_user.username or "Администратор")
-        team_name_escaped = escape_html(team.name)
-        tournament_name_escaped = escape_html(team.tournament.name if hasattr(team, 'tournament') and team.tournament else 'Неизвестный')
-        reason_escaped = escape_html(reason)
-        
-        updated_text = f"""❌ <b>Заявка отклонена</b>
-
-👥 <b>Команда:</b> {team_name_escaped}
-🏆 <b>Турнир:</b> {tournament_name_escaped}
-
-📝 <b>Причина:</b> {reason_escaped}
-
-❌ <b>Отклонено администратором:</b> {admin_name}"""
-        
+        # Удаляем сообщение из админ-чата (заявка отклонена)
         if chat_id and chat_message_id:
             try:
-                # Пробуем редактировать как текст
-                await message.bot.edit_message_text(
+                await message.bot.delete_message(
                     chat_id=chat_id,
-                    message_id=chat_message_id,
-                    text=updated_text,
-                    parse_mode="HTML"
+                    message_id=chat_message_id
                 )
-            except:
-                # Если не получилось (например это фото), редактируем caption
-                try:
-                    await message.bot.edit_message_caption(
-                        chat_id=chat_id,
-                        message_id=chat_message_id,
-                        caption=updated_text,
-                        parse_mode="HTML"
-                    )
-                except Exception as e:
-                    logger.error(f"Ошибка редактирования сообщения в чате: {e}")
+            except Exception as e:
+                logger.error(f"Ошибка удаления сообщения из админ-чата: {e}")
         
         await message.answer("✅ Заявка отклонена, капитан получил уведомление")
         await state.clear()

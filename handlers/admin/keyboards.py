@@ -545,6 +545,12 @@ def get_tournament_action_keyboard(tournament_id: int, tournament_status: str) -
     keyboard.extend([
         [
             InlineKeyboardButton(
+                text="🏆 Посмотреть сетку",
+                callback_data=f"admin:view_bracket_{tournament_id}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 text="📄 Получить регламент",
                 callback_data=f"admin:get_tournament_rules_{tournament_id}"
             )

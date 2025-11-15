@@ -849,15 +849,24 @@ async def create_team_final(callback: CallbackQuery, state: FSMContext):
         team_name_escaped = escape_html(team_name)
         captain_name = escape_html(user.full_name or user.username or 'Unknown')
         
+        # Формируем полный состав команды
+        main_roster = "\n".join([f"   {i}. {escape_html(p['nickname'])} ({escape_html(p['game_id'])})" 
+                                  for i, p in enumerate(main_players, 1)])
+        
+        substitute_roster = ""
+        if substitutes:
+            substitute_roster = "\n\n<b>Запасные:</b>\n" + "\n".join([f"   {i}. {escape_html(p['nickname'])} ({escape_html(p['game_id'])})" 
+                                                                        for i, p in enumerate(substitutes, 1)])
+        
         admin_text = f"""🔔 <b>Новая заявка на участие!</b>
+<b>ID команды: #{team.id}</b>
 
 👥 <b>Команда:</b> {team_name_escaped}
 🏆 <b>Турнир:</b> {tournament_name_escaped}
 👤 <b>Капитан:</b> {captain_name}
 
-<b>Состав:</b>
-▪️ Основных игроков: {len(main_players)}
-▪️ Запасных игроков: {len(substitutes)}
+<b>Основной состав:</b>
+{main_roster}{substitute_roster}
 
 ⏳ <b>Ожидает проверки администратором</b>"""
         
@@ -874,8 +883,8 @@ async def create_team_final(callback: CallbackQuery, state: FSMContext):
             ],
             [
                 InlineKeyboardButton(
-                    text="👁️ Подробнее",
-                    callback_data=f"admin:review_team_{team.id}"
+                    text="💬 Связь с капитаном",
+                    url=f"tg://user?id={user.telegram_id}"
                 )
             ]
         ]
