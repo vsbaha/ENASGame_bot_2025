@@ -401,6 +401,17 @@ class TeamRepository:
             return result.rowcount > 0
     
     @staticmethod
+    async def set_rejection_reason(team_id: int, reason: str) -> bool:
+        """Установка причины отклонения команды"""
+        async with get_session() as session:
+            session: AsyncSession
+            
+            stmt = update(Team).where(Team.id == team_id).values(rejection_reason=reason)
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount > 0
+    
+    @staticmethod
     async def search_by_name(name: str) -> List[Team]:
         """Поиск команд по названию"""
         async with get_session() as session:

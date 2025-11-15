@@ -841,43 +841,80 @@ async def create_team_final(callback: CallbackQuery, state: FSMContext):
         logger.info(f"Команда создана: {team.name} (ID: {team.id}) пользователем {user.telegram_id}")
         await callback.answer("✅ Команда создана!", show_alert=True)
         
-        # Отправляем уведомления администраторам о новой команде
+        # Отправляем уведомление в админ-чат о новой команде
         from config.settings import settings
-        tournament_name_escaped = data.get('tournament_name', 'Неизвестный турнир').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-        team_name_escaped = team_name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        from utils.text_formatting import escape_html
+        
+        tournament_name_escaped = escape_html(data.get('tournament_name', 'Неизвестный турнир'))
+        team_name_escaped = escape_html(team_name)
+        captain_name = escape_html(user.full_name or user.username or 'Unknown')
         
         admin_text = f"""🔔 <b>Новая заявка на участие!</b>
 
 👥 <b>Команда:</b> {team_name_escaped}
 🏆 <b>Турнир:</b> {tournament_name_escaped}
-👤 <b>Капитан:</b> {user.full_name or user.username or 'Unknown'}
+👤 <b>Капитан:</b> {captain_name}
 
 <b>Состав:</b>
 ▪️ Основных игроков: {len(main_players)}
 ▪️ Запасных игроков: {len(substitutes)}
 
-⏳ Ожидает проверки администратором."""
+⏳ <b>Ожидает проверки администратором</b>"""
         
         admin_keyboard = [
             [
                 InlineKeyboardButton(
-                    text="👁️ Проверить заявку",
+                    text="✅ Одобрить",
+                    callback_data=f"admin:approve_team_{team.id}"
+                ),
+                InlineKeyboardButton(
+                    text="❌ Отклонить",
+                    callback_data=f"admin:reject_team_{team.id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="👁️ Подробнее",
                     callback_data=f"admin:review_team_{team.id}"
                 )
             ]
         ]
         
-        for admin_id in settings.admin_ids:
+        # Отправляем в админ-чат (если настроен) или всем админам
+        if settings.admin_chat_id:
             try:
-                await callback.bot.send_message(
-                    chat_id=admin_id,
-                    text=admin_text,
-                    parse_mode="HTML",
-                    reply_markup=InlineKeyboardMarkup(inline_keyboard=admin_keyboard)
-                )
-                logger.info(f"Уведомление о команде {team.id} отправлено админу {admin_id}")
+                # Если есть логотип команды, отправляем с ним
+                if team.logo_file_id:
+                    await callback.bot.send_photo(
+                        chat_id=settings.admin_chat_id,
+                        photo=team.logo_file_id,
+                        caption=admin_text,
+                        parse_mode="HTML",
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=admin_keyboard)
+                    )
+                else:
+                    await callback.bot.send_message(
+                        chat_id=settings.admin_chat_id,
+                        text=admin_text,
+                        parse_mode="HTML",
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=admin_keyboard)
+                    )
+                logger.info(f"Уведомление о команде {team.id} отправлено в админ-чат {settings.admin_chat_id}")
             except Exception as e:
-                logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+                logger.error(f"Ошибка отправки уведомления в админ-чат: {e}")
+        else:
+            # Резервный вариант - отправка каждому админу
+            for admin_id in settings.admin_ids:
+                try:
+                    await callback.bot.send_message(
+                        chat_id=admin_id,
+                        text=admin_text,
+                        parse_mode="HTML",
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=admin_keyboard)
+                    )
+                    logger.info(f"Уведомление о команде {team.id} отправлено админу {admin_id}")
+                except Exception as e:
+                    logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
         
     except Exception as e:
         logger.error(f"Ошибка финального создания команды: {e}")

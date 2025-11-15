@@ -257,13 +257,16 @@ async def approve_team(callback: CallbackQuery, state: FSMContext):
         
         # Отправляем уведомление капитану
         from database.repositories import UserRepository
+        from utils.text_formatting import escape_html
+        
         captain = await UserRepository.get_by_id(team.captain_id)
         if captain:
-            team_name_escaped = team.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            team_name_escaped = escape_html(team.name)
+            tournament_name = escape_html(team.tournament.name if hasattr(team, 'tournament') and team.tournament else 'Неизвестный')
             captain_text = f"""✅ <b>Ваша команда одобрена!</b>
 
 👥 <b>Команда:</b> {team_name_escaped}
-🏆 <b>Турнир:</b> {team.tournament.name if hasattr(team, 'tournament') and team.tournament else 'Неизвестный'}
+🏆 <b>Турнир:</b> {tournament_name}
 
 🎉 Поздравляем! Ваша заявка на участие в турнире одобрена.
 Следите за расписанием матчей."""
@@ -278,25 +281,33 @@ async def approve_team(callback: CallbackQuery, state: FSMContext):
             except Exception as e:
                 logger.error(f"Ошибка отправки уведомления капитану {captain.telegram_id}: {e}")
         
-        text = f"""
-✅ Команда одобрена!
+        # Получаем админа который одобрил
+        admin = await UserRepository.get_by_telegram_id(callback.from_user.id)
+        admin_name = escape_html(admin.full_name or admin.username or callback.from_user.username or "Администратор")
+        
+        # Редактируем сообщение в чате - убираем кнопки и добавляем статус
+        team_name_escaped = escape_html(team.name)
+        tournament_name_escaped = escape_html(team.tournament.name if hasattr(team, 'tournament') and team.tournament else 'Неизвестный')
+        
+        updated_text = f"""✅ <b>Заявка одобрена</b>
 
-👥 Команда "{team.name}" успешно одобрена и активирована.
-Капитан получил уведомление.
-"""
-        await safe_edit_message(
-            callback.message,
-            text,
-            parse_mode="Markdown",
-            reply_markup=kb(
-                [
-                    [
-                        InlineKeyboardButton(text="📋 К заявкам", callback_data="admin:team_applications"),
-                        InlineKeyboardButton(text="🔙 Назад", callback_data="admin:teams"),
-                    ]
-                ]
-            ),
-        )
+👥 <b>Команда:</b> {team_name_escaped}
+🏆 <b>Турнир:</b> {tournament_name_escaped}
+
+✅ <b>Одобрено администратором:</b> {admin_name}
+📅 {callback.message.date.strftime('%d.%m.%Y %H:%M')}"""
+        
+        try:
+            await callback.message.edit_text(
+                text=updated_text,
+                parse_mode="HTML"
+            )
+        except:
+            await callback.message.edit_caption(
+                caption=updated_text,
+                parse_mode="HTML"
+            )
+        
         await callback.answer("✅ Команда одобрена")
     except Exception as e:
         logger.error(f"Ошибка при одобрении команды {team_id}: {e}")
@@ -310,22 +321,30 @@ async def reject_team(callback: CallbackQuery, state: FSMContext):
     if not team:
         return
 
-    text = f"""
-❌ Отклонение заявки
+    from utils.text_formatting import escape_html
+    team_name_escaped = escape_html(team.name)
+    
+    text = f"""❌ <b>Отклонение заявки</b>
 
-👥 Команда: {team.name}
+👥 <b>Команда:</b> {team_name_escaped}
 
 Введите причину отклонения заявки:
-(Это сообщение получит капитан команды)
-"""
-    await safe_edit_message(
-        callback.message,
-        text,
-        parse_mode="Markdown",
-        reply_markup=kb([[InlineKeyboardButton(text="🔙 Отменить", callback_data=f"admin:review_team_{team_id}")]]),
-    )
+<i>(Это сообщение получит капитан команды)</i>"""
+    
+    # Отправляем в личку админу для ввода причины
+    try:
+        await callback.bot.send_message(
+            chat_id=callback.from_user.id,
+            text=text,
+            parse_mode="HTML"
+        )
+        await callback.answer("✅ Проверьте личные сообщения бота", show_alert=True)
+    except:
+        await callback.answer("❌ Откройте личку сботом для ввода причины", show_alert=True)
+        return
+    
     await state.set_state(AdminStates.rejecting_team)
-    await state.update_data(team_id=team_id)
+    await state.update_data(team_id=team_id, chat_message_id=callback.message.message_id, chat_id=callback.message.chat.id)
     await callback.answer()
 
 
@@ -333,10 +352,12 @@ async def reject_team(callback: CallbackQuery, state: FSMContext):
 async def process_team_rejection_reason(message: Message, state: FSMContext):
     data = await state.get_data()
     team_id = data.get("team_id")
+    chat_message_id = data.get("chat_message_id")
+    chat_id = data.get("chat_id")
     reason = (message.text or "").strip()
 
     if not team_id:
-        await message.answer("❌ Ошибка: команда не найдена", parse_mode="Markdown")
+        await message.answer("❌ Ошибка: команда не найдена")
         await state.clear()
         return
 
@@ -346,20 +367,76 @@ async def process_team_rejection_reason(message: Message, state: FSMContext):
         return
 
     try:
+        from utils.text_formatting import escape_html
+        from database.repositories import UserRepository
+        
         await TeamRepository.update_status(int(team_id), "rejected")
-        text = f"""
-❌ Заявка отклонена
+        await TeamRepository.set_rejection_reason(int(team_id), reason)
+        
+        # Отправляем уведомление капитану
+        captain = await UserRepository.get_by_id(team.captain_id)
+        if captain:
+            team_name_escaped = escape_html(team.name)
+            tournament_name = escape_html(team.tournament.name if hasattr(team, 'tournament') and team.tournament else 'Неизвестный')
+            reason_escaped = escape_html(reason)
+            
+            captain_text = f"""❌ <b>Ваша заявка отклонена</b>
 
-👥 Команда "{team.name}" отклонена.
-Причина: {reason}
+👥 <b>Команда:</b> {team_name_escaped}
+🏆 <b>Турнир:</b> {tournament_name}
 
-Капитан получил уведомление с указанием причины.
-"""
-        await message.answer(
-            text,
-            parse_mode="Markdown",
-            reply_markup=kb([[InlineKeyboardButton(text="📋 К заявкам", callback_data="admin:team_applications"), InlineKeyboardButton(text="🔙 Назад", callback_data="admin:teams")]]),
-        )
+📝 <b>Причина отклонения:</b>
+{reason_escaped}
+
+Вы можете исправить ошибки и подать заявку заново."""
+            
+            try:
+                await message.bot.send_message(
+                    chat_id=captain.telegram_id,
+                    text=captain_text,
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logger.error(f"Ошибка отправки уведомления капитану: {e}")
+        
+        # Обновляем сообщение в админ-чате
+        admin = await UserRepository.get_by_telegram_id(message.from_user.id)
+        admin_name = escape_html(admin.full_name or admin.username or message.from_user.username or "Администратор")
+        team_name_escaped = escape_html(team.name)
+        tournament_name_escaped = escape_html(team.tournament.name if hasattr(team, 'tournament') and team.tournament else 'Неизвестный')
+        reason_escaped = escape_html(reason)
+        
+        updated_text = f"""❌ <b>Заявка отклонена</b>
+
+👥 <b>Команда:</b> {team_name_escaped}
+🏆 <b>Турнир:</b> {tournament_name_escaped}
+
+📝 <b>Причина:</b> {reason_escaped}
+
+❌ <b>Отклонено администратором:</b> {admin_name}"""
+        
+        if chat_id and chat_message_id:
+            try:
+                # Пробуем редактировать как текст
+                await message.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=chat_message_id,
+                    text=updated_text,
+                    parse_mode="HTML"
+                )
+            except:
+                # Если не получилось (например это фото), редактируем caption
+                try:
+                    await message.bot.edit_message_caption(
+                        chat_id=chat_id,
+                        message_id=chat_message_id,
+                        caption=updated_text,
+                        parse_mode="HTML"
+                    )
+                except Exception as e:
+                    logger.error(f"Ошибка редактирования сообщения в чате: {e}")
+        
+        await message.answer("✅ Заявка отклонена, капитан получил уведомление")
         await state.clear()
     except Exception as e:
         logger.error(f"Ошибка при отклонении команды {team_id}: {e}")

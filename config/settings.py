@@ -19,6 +19,10 @@ class Settings:
         if admin_ids_str:
             self.admin_ids = [int(x.strip()) for x in admin_ids_str.split(",") if x.strip()]
         
+        # ID чата для уведомлений админов
+        admin_chat_id_str = os.getenv("ADMIN_CHAT_ID", "")
+        self.admin_chat_id = int(admin_chat_id_str) if admin_chat_id_str else None
+        
         # Поддержка
         self.support_username = os.getenv("SUPPORT_USERNAME", "support")
         
