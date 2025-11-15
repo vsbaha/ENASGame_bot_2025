@@ -10,6 +10,7 @@ from aiogram.fsm.context import FSMContext
 from database.repositories import TournamentRepository, GameRepository
 from utils.message_utils import safe_edit_message, safe_send_message
 from utils.datetime_utils import format_datetime_for_user
+from utils.text_formatting import escape_markdown_simple
 from ..states import AdminStates
 from ..keyboards import get_game_selection_keyboard, get_tournament_format_keyboard, get_confirm_tournament_creation_keyboard
 
@@ -559,12 +560,18 @@ async def show_tournament_confirmation(message: Message, state: FSMContext):
         if data.get('tournament_logo_file_id'):
             logo_info = "\n🖼️ **Логотип:** Загружен"
         
+        # Экранируем текстовые данные для безопасного использования в Markdown
+        safe_name = escape_markdown_simple(data['tournament_name'])
+        safe_description = escape_markdown_simple(data.get('tournament_description') or 'Не указано')
+        safe_game_name = escape_markdown_simple(game.name if game else 'N/A')
+        safe_format = escape_markdown_simple(format_names.get(data['tournament_format'], data['tournament_format']))
+        
         text = f"""✅ **Подтверждение создания турнира**
 
-🏆 **Название:** {data['tournament_name']}
-📝 **Описание:** {data.get('tournament_description') or 'Не указано'}
-🎮 **Игра:** {game.name if game else 'N/A'}
-🏆 **Формат:** {format_names.get(data['tournament_format'], data['tournament_format'])}
+🏆 **Название:** {safe_name}
+📝 **Описание:** {safe_description}
+🎮 **Игра:** {safe_game_name}
+🏆 **Формат:** {safe_format}
 👥 **Макс. команд:** {data['tournament_max_teams']}{rules_file_info}{logo_info}
 
 📅 **Даты (UTC):**
