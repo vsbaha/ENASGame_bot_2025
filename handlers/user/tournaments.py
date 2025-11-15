@@ -15,6 +15,7 @@ from database.repositories.game_repository import GameRepository
 from utils.localization import Localization
 from utils.message_utils import safe_edit_message
 from utils.keyboards import get_tournaments_keyboard, get_back_keyboard, get_games_selection_keyboard
+from utils.text_formatting import escape_html
 from .states import UserStates
 
 # Создаем роутер для турниров
@@ -146,29 +147,42 @@ async def show_tournament_details(callback: CallbackQuery):
     }
     format_display = format_names.get(tournament.format, tournament.format)
     
-    text = f"""🏆 **{tournament.name}**
+    # Экранируем данные для HTML
+    safe_name = escape_html(tournament.name)
+    safe_game_name = escape_html(tournament.game.name)
+    safe_format = escape_html(format_display)
+    
+    text = f"""🏆 <b>{safe_name}</b>
 
-🎮 **Игра:** {tournament.game.name}
-📋 **Формат:** {format_display}
-👥 **Максимум команд:** {tournament.max_teams}
+🎮 <b>Игра:</b> {safe_game_name}
+📋 <b>Формат:</b> {safe_format}
+👥 <b>Максимум команд:</b> {tournament.max_teams}
 
-📅 **Даты ({user.timezone}):**
+📅 <b>Даты ({user.timezone}):</b>
 📝 Регистрация: {format_datetime_for_user(tournament.registration_start, user.timezone)} - {format_datetime_for_user(tournament.registration_end, user.timezone)}
 🏁 Начало турнира: {format_datetime_for_user(tournament.tournament_start, user.timezone)}
 
 """
     
     if tournament.description:
-        text += f"📄 **Описание:**\n{tournament.description}\n\n"
+        # Ограничиваем описание для caption (макс 1024 символа для всего caption)
+        safe_description = escape_html(tournament.description)
+        if len(text) + len(safe_description) > 900:  # Оставляем запас
+            safe_description = safe_description[:800] + "..."
+        text += f"📄 <b>Описание:</b>\n{safe_description}\n\n"
     
     # Статус регистрации
     registered_count = len(tournament.teams) if tournament.teams else 0
-    text += f"👥 **Зарегистрировано команд:** {registered_count}/{tournament.max_teams}\n\n"
+    text += f"👥 <b>Зарегистрировано команд:</b> {registered_count}/{tournament.max_teams}\n\n"
     
     if is_registration_open:
-        text += "✅ **Регистрация открыта!**"
+        text += "✅ <b>Регистрация открыта!</b>"
     else:
-        text += "🔒 **Регистрация закрыта**"
+        text += "🔒 <b>Регистрация закрыта</b>"
+    
+    # Ограничиваем общую длину caption (максимум 1024 символа)
+    if len(text) > 1020:
+        text = text[:1000] + "...\n\n" + text.split("\n\n")[-1]  # Сохраняем последний блок со статусом
     
     # Создаем клавиатуру
     from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -195,7 +209,7 @@ async def show_tournament_details(callback: CallbackQuery):
                 photo=tournament.logo_file_id,
                 caption=text,
                 reply_markup=builder.as_markup(),
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
         except Exception as e:
             logger.error(f"Ошибка отправки логотипа турнира: {e}")
@@ -204,14 +218,14 @@ async def show_tournament_details(callback: CallbackQuery):
                 callback.message,
                 text,
                 reply_markup=builder.as_markup(),
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
     else:
         await safe_edit_message(
             callback.message,
             text,
             reply_markup=builder.as_markup(),
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
     
     await callback.answer()
