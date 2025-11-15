@@ -152,37 +152,50 @@ async def show_tournament_details(callback: CallbackQuery):
     safe_game_name = escape_html(tournament.game.name)
     safe_format = escape_html(format_display)
     
-    text = f"""🏆 <b>{safe_name}</b>
+    # Статус регистрации
+    registered_count = len(tournament.teams) if tournament.teams else 0
+    
+    # Красивое оформление с разделителями
+    text = f"""╔═══════════════════════════╗
+   🏆 <b>{safe_name}</b>
+╚═══════════════════════════╝
 
 🎮 <b>Игра:</b> {safe_game_name}
-📋 <b>Формат:</b> {safe_format}
-👥 <b>Максимум команд:</b> {tournament.max_teams}
+📋 <b>Формат турнира:</b> {safe_format}
+👥 <b>Команд:</b> {registered_count}/{tournament.max_teams}
 
-📅 <b>Даты ({user.timezone}):</b>
-📝 Регистрация: {format_datetime_for_user(tournament.registration_start, user.timezone)} - {format_datetime_for_user(tournament.registration_end, user.timezone)}
-🏁 Начало турнира: {format_datetime_for_user(tournament.tournament_start, user.timezone)}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📅 <b>РАСПИСАНИЕ ({user.timezone})</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📝 <b>Регистрация:</b>
+   ▫️ Начало: {format_datetime_for_user(tournament.registration_start, user.timezone)}
+   ▫️ Конец: {format_datetime_for_user(tournament.registration_end, user.timezone)}
+
+🏁 <b>Старт турнира:</b>
+   ▫️ {format_datetime_for_user(tournament.tournament_start, user.timezone)}
 
 """
     
     if tournament.description:
         # Ограничиваем описание для caption (макс 1024 символа для всего caption)
         safe_description = escape_html(tournament.description)
-        if len(text) + len(safe_description) > 900:  # Оставляем запас
-            safe_description = safe_description[:800] + "..."
-        text += f"📄 <b>Описание:</b>\n{safe_description}\n\n"
+        if len(text) + len(safe_description) > 850:  # Оставляем запас
+            safe_description = safe_description[:700] + "..."
+        text += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📄 <b>ОПИСАНИЕ</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n{safe_description}\n\n"
     
-    # Статус регистрации
-    registered_count = len(tournament.teams) if tournament.teams else 0
-    text += f"👥 <b>Зарегистрировано команд:</b> {registered_count}/{tournament.max_teams}\n\n"
-    
+    # Статус регистрации с эмодзи
+    text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     if is_registration_open:
-        text += "✅ <b>Регистрация открыта!</b>"
+        text += "✅ <b>РЕГИСТРАЦИЯ ОТКРЫТА!</b>\n"
+        text += f"📊 Свободно мест: <b>{tournament.max_teams - registered_count}</b>"
     else:
-        text += "🔒 <b>Регистрация закрыта</b>"
+        text += "🔒 <b>РЕГИСТРАЦИЯ ЗАКРЫТА</b>"
     
     # Ограничиваем общую длину caption (максимум 1024 символа)
     if len(text) > 1020:
-        text = text[:1000] + "...\n\n" + text.split("\n\n")[-1]  # Сохраняем последний блок со статусом
+        # Обрезаем описание если текст слишком длинный
+        text = text[:1000] + "...\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" + "✅ <b>РЕГИСТРАЦИЯ ОТКРЫТА!</b>" if is_registration_open else "🔒 <b>РЕГИСТРАЦИЯ ЗАКРЫТА</b>"
     
     # Создаем клавиатуру
     from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -190,54 +203,60 @@ async def show_tournament_details(callback: CallbackQuery):
     
     if is_registration_open and registered_count < tournament.max_teams:
         builder.button(
-            text="📝 Зарегистрировать команду",
+            text="✅ Зарегистрировать команду",
             callback_data=f"register_team:{tournament_id}"
         )
     
     builder.button(text="◀️ Назад к турнирам", callback_data=f"user_game:{tournament.game_id}")
     builder.adjust(1)
     
-    # Если есть логотип турнира, отправляем с фото
+    # Удаляем старое сообщение
+    try:
+        await callback.message.delete()
+    except:
+        pass
+    
+    # Если есть логотип турнира, отправляем с фото БЕЗ кнопок
     if tournament.logo_file_id:
         try:
-            # Удаляем старое сообщение
-            await callback.message.delete()
-            
-            # Отправляем новое с фото
             await callback.bot.send_photo(
                 chat_id=callback.message.chat.id,
                 photo=tournament.logo_file_id,
                 caption=text,
-                reply_markup=builder.as_markup(),
                 parse_mode="HTML"
             )
         except Exception as e:
             logger.error(f"Ошибка отправки логотипа турнира: {e}")
             # Если не удалось отправить с фото, отправляем текстом
-            await safe_edit_message(
-                callback.message,
-                text,
-                reply_markup=builder.as_markup(),
-                parse_mode="HTML"
-            )
+            await callback.message.answer(text, parse_mode="HTML")
     else:
-        await safe_edit_message(
-            callback.message,
-            text,
-            reply_markup=builder.as_markup(),
-            parse_mode="HTML"
-        )
+        # Если нет логотипа, отправляем просто текст
+        await callback.message.answer(text, parse_mode="HTML")
     
-    # Отправляем файл правил если есть
+    # Отправляем файл правил С КНОПКАМИ (если есть файл)
     if tournament.rules_file_id:
         try:
             await callback.message.answer_document(
                 document=tournament.rules_file_id,
-                caption=f"📄 <b>Правила турнира:</b> {escape_html(tournament.rules_file_name or 'Правила.pdf')}",
+                caption=f"📄 <b>Регламент турнира</b>\n\n{escape_html(tournament.rules_file_name or 'Правила.pdf')}",
+                reply_markup=builder.as_markup(),
                 parse_mode="HTML"
             )
         except Exception as e:
             logger.error(f"Ошибка отправки файла правил турнира: {e}")
+            # Если не удалось отправить файл, отправляем кнопки отдельным сообщением
+            await callback.message.answer(
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n<b>Выберите действие:</b>",
+                reply_markup=builder.as_markup(),
+                parse_mode="HTML"
+            )
+    else:
+        # Если нет файла правил, отправляем кнопки отдельным сообщением
+        await callback.message.answer(
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n<b>Выберите действие:</b>",
+            reply_markup=builder.as_markup(),
+            parse_mode="HTML"
+        )
     
     await callback.answer()
 
