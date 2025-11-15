@@ -117,34 +117,53 @@ async def show_tournament_management_info(callback: CallbackQuery, tournament, s
     }.get(tournament.status, 'Неизвестно')
     
     game_name = tournament.game.name if hasattr(tournament, 'game') and tournament.game else 'N/A'
-    description = tournament.description or 'Не указано'
     
-    # Информация о файлах
-    files_info = []
-    if tournament.rules_file_id:
-        files_info.append(f"📄 Правила: <b>{escape_html(tournament.rules_file_name or 'Загружены')}</b>")
-    if tournament.logo_file_id:
-        files_info.append("🖼️ Логотип: <b>Загружен</b>")
+    # Форматируем даты в читаемый формат (16 дек 00:00)
+    from datetime import datetime
+    import locale
     
-    files_text = "\n".join(files_info) if files_info else "❌ Файлы не загружены"
+    def format_date_short(dt):
+        """Форматирует дату как '16 дек 00:00'"""
+        months = {
+            1: 'янв', 2: 'фев', 3: 'мар', 4: 'апр', 5: 'май', 6: 'июн',
+            7: 'июл', 8: 'авг', 9: 'сен', 10: 'окт', 11: 'ноя', 12: 'дек'
+        }
+        local_dt = format_datetime_for_user(dt, 'Asia/Bishkek', '%d|%m|%H:%M')
+        day, month, time = local_dt.split('|')
+        return f"{int(day)} {months[int(month)]} {time}"
+    
+    # Получаем количество зарегистрированных команд
+    registered_teams = len(tournament.teams) if tournament.teams else 0
+    
+    # Описание - первые 100 символов
+    description = ""
+    if tournament.description:
+        desc = escape_html(tournament.description)
+        if len(desc) > 100:
+            description = f"\n\n📝 <i>{desc[:100]}...</i>"
+        else:
+            description = f"\n\n📝 <i>{desc}</i>"
+    
+    # Форматируем название формата
+    format_names = {
+        'single_elimination': 'Одиночное выбывание',
+        'double_elimination': 'Двойное выбывание',
+        'round_robin': 'Круговая система',
+        'group_stage_playoffs': 'Групповая + плей-офф'
+    }
+    format_display = format_names.get(tournament.format, tournament.format)
     
     text = f"""🏆 <b>{escape_html(tournament.name)}</b>
 
-📊 <b>Подробная информация:</b>
-🎮 Игра: <b>{escape_html(game_name)}</b>
-🏆 Формат: <b>{escape_html(tournament.format)}</b>
-📈 Статус: {status_emoji} <b>{status_text}</b>
-👥 Максимум команд: <b>{tournament.max_teams}</b>
-📅 Создан: <b>{format_datetime_for_user(tournament.created_at, 'Asia/Bishkek', '%d.%m.%Y в %H:%M')}</b>
+🎮 <b>{escape_html(game_name)}</b>
+🏆 {escape_html(format_display)}
+📈 {status_emoji} <b>{status_text}</b>
+👥 Команд: <b>{registered_teams}/{tournament.max_teams}</b>
 
-📅 <b>Даты (GMT+6):</b>
-📋 Регистрация: <b>{format_datetime_for_user(tournament.registration_start, 'Asia/Bishkek')}</b> - <b>{format_datetime_for_user(tournament.registration_end, 'Asia/Bishkek')}</b>
-🏁 Начало турнира: <b>{format_datetime_for_user(tournament.tournament_start, 'Asia/Bishkek')}</b>
+📅 <b>Регистрация:</b>
+   {format_date_short(tournament.registration_start)} - {format_date_short(tournament.registration_end)}
 
-📝 <b>Описание:</b> {escape_html(description)}
-
-📎 <b>Файлы:</b>
-{files_text}
+🏁 <b>Начало:</b> {format_date_short(tournament.tournament_start)}{description}
 
 <b>Выберите действие:</b>"""
     
