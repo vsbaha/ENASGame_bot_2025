@@ -365,12 +365,12 @@ async def register_team_for_tournament(callback: CallbackQuery, state: FSMContex
                 builder.button(text="◀️ Назад к турниру", callback_data=f"tournament:{tournament_id}")
                 builder.adjust(1)
                 
-                await safe_edit_message(
-                    callback.message,
+                await callback.message.answer(
                     text,
                     reply_markup=builder.as_markup(),
                     parse_mode="HTML"
                 )
+                await callback.answer()
                 return
         
         # Сохраняем ID турнира в состоянии (используем стандартное имя tournament_id)
@@ -386,21 +386,23 @@ async def register_team_for_tournament(callback: CallbackQuery, state: FSMContex
         # Переходим к вводу названия команды
         from .states import UserStates
         
-        text = f"""📝 **Регистрация команды на турнир**
+        safe_tournament_name = escape_html(tournament.name)
+        safe_game_name = escape_html(tournament.game.name if hasattr(tournament, 'game') and tournament.game else 'Unknown')
+        
+        text = f"""📝 <b>Регистрация команды на турнир</b>
 
-🏆 Турнир: **{tournament.name}**
-🎮 Игра: **{tournament.game.name}**
+🏆 Турнир: <b>{safe_tournament_name}</b>
+🎮 Игра: <b>{safe_game_name}</b>
 
 Введите название вашей команды:
 
-*Требования:*
+<i>Требования:</i>
 ▪️ От 3 до 50 символов
 ▪️ Можно использовать буквы, цифры и спецсимволы"""
         
-        await safe_edit_message(
-            callback.message,
+        await callback.message.answer(
             text,
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
         
         await state.set_state(UserStates.registering_team_entering_name)
