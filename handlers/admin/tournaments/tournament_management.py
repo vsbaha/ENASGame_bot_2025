@@ -90,8 +90,14 @@ async def tournament_settings_menu(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Ошибка загрузки данных", show_alert=True)
 
 
-async def show_tournament_management_info(callback: CallbackQuery, tournament):
-    """Показать информацию о турнире с кнопками управления (helper функция)"""
+async def show_tournament_management_info(callback: CallbackQuery, tournament, send_rules_file: bool = False):
+    """Показать информацию о турнире с кнопками управления (helper функция)
+    
+    Args:
+        callback: CallbackQuery
+        tournament: Объект турнира
+        send_rules_file: Если True, отправит файл правил отдельным сообщением
+    """
     # Статус эмодзи
     status_emoji = {
         'registration': '📝',
@@ -166,8 +172,8 @@ async def show_tournament_management_info(callback: CallbackQuery, tournament):
             reply_markup=get_tournament_action_keyboard(tournament.id, tournament.status)
         )
     
-    # Отправляем файл правил если есть
-    if tournament.rules_file_id:
+    # Отправляем файл правил если есть (только если запрошено)
+    if send_rules_file and tournament.rules_file_id:
         try:
             await callback.message.answer_document(
                 document=tournament.rules_file_id,
@@ -194,7 +200,8 @@ async def manage_specific_tournament(callback: CallbackQuery, state: FSMContext)
             await callback.answer("❌ Турнир не найден", show_alert=True)
             return
         
-        await show_tournament_management_info(callback, tournament)
+        # При первом открытии турнира отправляем файл правил
+        await show_tournament_management_info(callback, tournament, send_rules_file=True)
         await callback.answer()
         
     except Exception as e:
