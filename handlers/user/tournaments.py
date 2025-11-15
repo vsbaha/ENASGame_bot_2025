@@ -155,47 +155,36 @@ async def show_tournament_details(callback: CallbackQuery):
     # Статус регистрации
     registered_count = len(tournament.teams) if tournament.teams else 0
     
-    # Красивое оформление с разделителями
-    text = f"""╔═══════════════════════════╗
-   🏆 <b>{safe_name}</b>
-╚═══════════════════════════╝
+    text = f"""🏆 <b>{safe_name}</b>
 
 🎮 <b>Игра:</b> {safe_game_name}
-📋 <b>Формат турнира:</b> {safe_format}
-👥 <b>Команд:</b> {registered_count}/{tournament.max_teams}
+📋 <b>Формат:</b> {safe_format}
+👥 <b>Максимум команд:</b> {tournament.max_teams}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📅 <b>РАСПИСАНИЕ ({user.timezone})</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-📝 <b>Регистрация:</b>
-   ▫️ Начало: {format_datetime_for_user(tournament.registration_start, user.timezone)}
-   ▫️ Конец: {format_datetime_for_user(tournament.registration_end, user.timezone)}
-
-🏁 <b>Старт турнира:</b>
-   ▫️ {format_datetime_for_user(tournament.tournament_start, user.timezone)}
+📅 <b>Даты ({user.timezone}):</b>
+📝 Регистрация: <i>{format_datetime_for_user(tournament.registration_start, user.timezone)} - {format_datetime_for_user(tournament.registration_end, user.timezone)}</i>
+🏁 Начало турнира: <i>{format_datetime_for_user(tournament.tournament_start, user.timezone)}</i>
 
 """
     
     if tournament.description:
         # Ограничиваем описание для caption (макс 1024 символа для всего caption)
         safe_description = escape_html(tournament.description)
-        if len(text) + len(safe_description) > 850:  # Оставляем запас
-            safe_description = safe_description[:700] + "..."
-        text += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📄 <b>ОПИСАНИЕ</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n{safe_description}\n\n"
+        if len(text) + len(safe_description) > 900:  # Оставляем запас
+            safe_description = safe_description[:800] + "..."
+        text += f"📄 <b>Описание:</b>\n{safe_description}\n\n"
     
-    # Статус регистрации с эмодзи
-    text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    # Статус регистрации
+    text += f"👥 <b>Зарегистрировано команд:</b> {registered_count}/{tournament.max_teams}\n\n"
+    
     if is_registration_open:
-        text += "✅ <b>РЕГИСТРАЦИЯ ОТКРЫТА!</b>\n"
-        text += f"📊 Свободно мест: <b>{tournament.max_teams - registered_count}</b>"
+        text += "✅ <b>Регистрация открыта!</b>"
     else:
-        text += "🔒 <b>РЕГИСТРАЦИЯ ЗАКРЫТА</b>"
+        text += "🔒 <b>Регистрация закрыта</b>"
     
     # Ограничиваем общую длину caption (максимум 1024 символа)
     if len(text) > 1020:
-        # Обрезаем описание если текст слишком длинный
-        text = text[:1000] + "...\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" + "✅ <b>РЕГИСТРАЦИЯ ОТКРЫТА!</b>" if is_registration_open else "🔒 <b>РЕГИСТРАЦИЯ ЗАКРЫТА</b>"
+        text = text[:1000] + "...\n\n" + text.split("\n\n")[-1]  # Сохраняем последний блок со статусом
     
     # Создаем клавиатуру
     from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -246,14 +235,14 @@ async def show_tournament_details(callback: CallbackQuery):
             logger.error(f"Ошибка отправки файла правил турнира: {e}")
             # Если не удалось отправить файл, отправляем кнопки отдельным сообщением
             await callback.message.answer(
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n<b>Выберите действие:</b>",
+                "─────────────────────\n<b>Выберите действие:</b>",
                 reply_markup=builder.as_markup(),
                 parse_mode="HTML"
             )
     else:
         # Если нет файла правил, отправляем кнопки отдельным сообщением
         await callback.message.answer(
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n<b>Выберите действие:</b>",
+            "─────────────────────\n<b>Выберите действие:</b>",
             reply_markup=builder.as_markup(),
             parse_mode="HTML"
         )
