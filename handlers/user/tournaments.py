@@ -228,6 +228,17 @@ async def show_tournament_details(callback: CallbackQuery):
             parse_mode="HTML"
         )
     
+    # Отправляем файл правил если есть
+    if tournament.rules_file_id:
+        try:
+            await callback.message.answer_document(
+                document=tournament.rules_file_id,
+                caption=f"📄 <b>Правила турнира:</b> {escape_html(tournament.rules_file_name or 'Правила.pdf')}",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Ошибка отправки файла правил турнира: {e}")
+    
     await callback.answer()
 
 
