@@ -13,8 +13,8 @@ class Settings:
         # Токен бота
         self.bot_token = os.getenv("BOT_TOKEN", "")
         
-        # Админы
-        admin_ids_str = os.getenv("ADMIN_IDS", "")
+        # Админы (поддержка обоих вариантов названия)
+        admin_ids_str = os.getenv("ADMIN_IDS") or os.getenv("ADMIN_USER_IDS", "")
         self.admin_ids: List[int] = []
         if admin_ids_str:
             self.admin_ids = [int(x.strip()) for x in admin_ids_str.split(",") if x.strip()]

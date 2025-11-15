@@ -202,10 +202,29 @@ async def view_team_details(callback: CallbackQuery, state: FSMContext):
             )
         ])
         
-        await safe_edit_message(
-            callback.message, text, parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
-        )
+        # Если есть логотип команды, отправляем с фото
+        if team.logo_file_id:
+            try:
+                await callback.message.delete()
+                await callback.bot.send_photo(
+                    chat_id=callback.message.chat.id,
+                    photo=team.logo_file_id,
+                    caption=text,
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                logger.error(f"Ошибка отправки логотипа команды: {e}")
+                await safe_edit_message(
+                    callback.message, text, parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+                )
+        else:
+            await safe_edit_message(
+                callback.message, text, parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+            )
+        
         await state.set_state(UserStates.viewing_team)
         await callback.answer()
         
