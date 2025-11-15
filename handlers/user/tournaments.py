@@ -365,6 +365,19 @@ async def register_team_for_tournament(callback: CallbackQuery, state: FSMContex
                 builder.button(text="◀️ Назад к турниру", callback_data=f"tournament:{tournament_id}")
                 builder.adjust(1)
                 
+                # Удаляем предыдущие сообщения
+                try:
+                    for i in range(3):
+                        try:
+                            await callback.bot.delete_message(
+                                chat_id=callback.message.chat.id,
+                                message_id=callback.message.message_id - i
+                            )
+                        except:
+                            pass
+                except:
+                    pass
+                
                 await callback.message.answer(
                     text,
                     reply_markup=builder.as_markup(),
@@ -399,6 +412,20 @@ async def register_team_for_tournament(callback: CallbackQuery, state: FSMContex
 <i>Требования:</i>
 ▪️ От 3 до 50 символов
 ▪️ Можно использовать буквы, цифры и спецсимволы"""
+        
+        # Удаляем предыдущие сообщения (информацию о турнире, регламент, кнопки)
+        try:
+            # Пробуем удалить последние 3 сообщения (инфо + регламент + кнопки или инфо + кнопки)
+            for i in range(3):
+                try:
+                    await callback.bot.delete_message(
+                        chat_id=callback.message.chat.id,
+                        message_id=callback.message.message_id - i
+                    )
+                except:
+                    pass
+        except:
+            pass
         
         await callback.message.answer(
             text,
