@@ -15,6 +15,44 @@ from .keyboards import get_statistics_keyboard
 router = Router()
 logger = logging.getLogger(__name__)
 
+@router.callback_query(F.data == "admin:download_database")
+async def download_database(callback: CallbackQuery):
+    """Отправка файла базы данных администратору"""
+    try:
+        import os
+        from config.settings import settings
+        
+        # Путь к файлу БД
+        db_path = "tournament_bot.db"
+        
+        if not os.path.exists(db_path):
+            await callback.answer("❌ Файл базы данных не найден", show_alert=True)
+            return
+        
+        # Получаем размер файла
+        file_size = os.path.getsize(db_path)
+        file_size_mb = file_size / (1024 * 1024)
+        
+        # Отправляем файл
+        from aiogram.types import FSInputFile
+        
+        try:
+            db_file = FSInputFile(db_path)
+            await callback.message.answer_document(
+                document=db_file,
+                caption=f"💾 <b>База данных бота</b>\n\n📊 Размер: {file_size_mb:.2f} МБ\n📅 Дата: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
+                parse_mode="HTML"
+            )
+            await callback.answer("✅ База данных отправлена")
+        except Exception as e:
+            logger.error(f"Ошибка отправки файла БД: {e}")
+            await callback.answer("❌ Ошибка отправки файла", show_alert=True)
+            
+    except Exception as e:
+        logger.error(f"Ошибка получения БД: {e}")
+        await callback.answer("❌ Ошибка", show_alert=True)
+
+
 @router.callback_query(F.data == "admin:statistics")
 async def statistics_menu(callback: CallbackQuery, state: FSMContext):
     """Меню статистики"""

@@ -39,6 +39,12 @@ def get_admin_main_keyboard() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
+                text="💾 Скачать базу данных",
+                callback_data="admin:download_database"
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 text="🔙 Назад в главное меню",
                 callback_data="main_menu"
             )
