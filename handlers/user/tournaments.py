@@ -73,17 +73,42 @@ async def show_tournaments_by_game(callback: CallbackQuery):
     all_tournaments = await TournamentRepository.get_active_tournaments(user.region)
     tournaments = [t for t in all_tournaments if t.game_id == game_id]
     
+    safe_game_name = escape_html(game.name)
+    
     if not tournaments:
-        await safe_edit_message(
-            callback.message,
-            f"❌ **Нет активных турниров по игре {game.name}**\n\nПопробуйте выбрать другую игру или зайдите позже.",
-            reply_markup=get_back_keyboard(localization),
-            parse_mode="Markdown"
-        )
+        text = f"❌ <b>Нет активных турниров по игре {safe_game_name}</b>\n\nПопробуйте выбрать другую игру или зайдите позже."
+        
+        # Если есть логотип игры, отправляем с фото
+        if game.icon_file_id:
+            try:
+                await callback.message.delete()
+                await callback.bot.send_photo(
+                    chat_id=callback.message.chat.id,
+                    photo=game.icon_file_id,
+                    caption=text,
+                    reply_markup=get_back_keyboard(localization),
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logger.error(f"Ошибка отправки логотипа игры: {e}")
+                await safe_edit_message(
+                    callback.message,
+                    text,
+                    reply_markup=get_back_keyboard(localization),
+                    parse_mode="HTML"
+                )
+        else:
+            await safe_edit_message(
+                callback.message,
+                text,
+                reply_markup=get_back_keyboard(localization),
+                parse_mode="HTML"
+            )
+        await callback.answer()
         return
     
     # Формируем список турниров
-    tournaments_text = f"🎮 **Турниры по игре: {game.name}**\n\n"
+    tournaments_text = f"🎮 <b>Турниры по игре: {safe_game_name}</b>\n\n"
     
     for tournament in tournaments:
         # Проверяем статус регистрации
@@ -94,7 +119,8 @@ async def show_tournaments_by_game(callback: CallbackQuery):
         )
         
         status_emoji = "✅" if is_registration_open else "🔒"
-        tournaments_text += f"{status_emoji} **{tournament.name}**\n"
+        safe_tournament_name = escape_html(tournament.name)
+        tournaments_text += f"{status_emoji} <b>{safe_tournament_name}</b>\n"
         
         if is_registration_open:
             tournaments_text += "📝 Регистрация открыта\n"
@@ -105,12 +131,33 @@ async def show_tournaments_by_game(callback: CallbackQuery):
         registered_count = len(tournament.teams) if tournament.teams else 0
         tournaments_text += f"👥 Команд: {registered_count}/{tournament.max_teams}\n\n"
     
-    await safe_edit_message(
-        callback.message,
-        tournaments_text,
-        reply_markup=get_tournaments_keyboard(tournaments, localization, show_back_to_games=True),
-        parse_mode="Markdown"
-    )
+    # Если есть логотип игры, отправляем с фото
+    if game.icon_file_id:
+        try:
+            await callback.message.delete()
+            await callback.bot.send_photo(
+                chat_id=callback.message.chat.id,
+                photo=game.icon_file_id,
+                caption=tournaments_text,
+                reply_markup=get_tournaments_keyboard(tournaments, localization, show_back_to_games=True),
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Ошибка отправки логотипа игры: {e}")
+            await safe_edit_message(
+                callback.message,
+                tournaments_text,
+                reply_markup=get_tournaments_keyboard(tournaments, localization, show_back_to_games=True),
+                parse_mode="HTML"
+            )
+    else:
+        await safe_edit_message(
+            callback.message,
+            tournaments_text,
+            reply_markup=get_tournaments_keyboard(tournaments, localization, show_back_to_games=True),
+            parse_mode="HTML"
+        )
+    
     await callback.answer()
 
 
