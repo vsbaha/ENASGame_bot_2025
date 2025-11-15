@@ -265,10 +265,11 @@ async def proceed_to_dates(message: Message, state: FSMContext):
     """Переход к вводу дат турнира"""
     data = await state.get_data()
     tournament_name = data.get('tournament_name', '')
+    safe_tournament_name = escape_markdown_simple(tournament_name)
     
     text = f"""📅 **Шаг 6.1: Дата начала регистрации**
 
-**Турнир:** {tournament_name}
+**Турнир:** {safe_tournament_name}
 
 Введите дату начала регистрации в UTC:
 
@@ -333,9 +334,11 @@ async def process_tournament_game(callback: CallbackQuery, state: FSMContext):
         # Сохраняем выбранную игру
         await state.update_data(tournament_game_id=game_id)
         
+        safe_game_name = escape_markdown_simple(game.name)
+        
         text = f"""🏆 **Выберите формат турнира:**
 
-🎮 Игра: **{game.name}**
+🎮 Игра: **{safe_game_name}**
 
 Доступные форматы:"""
         
