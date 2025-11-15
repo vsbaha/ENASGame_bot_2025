@@ -243,6 +243,13 @@ async def show_tournament_details(callback: CallbackQuery):
             callback_data=f"register_team:{tournament_id}"
         )
     
+    # Кнопка для получения регламента (если он есть)
+    if tournament.rules_file_id:
+        builder.button(
+            text="📄 Получить регламент",
+            callback_data=f"get_tournament_rules:{tournament_id}"
+        )
+    
     builder.button(text="◀️ Назад к турнирам", callback_data=f"user_game:{tournament.game_id}")
     builder.adjust(1)
     
@@ -269,32 +276,46 @@ async def show_tournament_details(callback: CallbackQuery):
         # Если нет логотипа, отправляем просто текст
         await callback.message.answer(text, parse_mode="HTML")
     
-    # Отправляем файл правил С КНОПКАМИ (если есть файл)
-    if tournament.rules_file_id:
+    # Отправляем кнопки отдельным сообщением
+    await callback.message.answer(
+        "─────────────────────\n<b>Выберите действие:</b>",
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
+    )
+    
+    await callback.answer()
+
+
+@tournaments_router.callback_query(F.data.startswith("get_tournament_rules:"))
+async def get_tournament_rules(callback: CallbackQuery):
+    """Отправка файла регламента турнира"""
+    try:
+        tournament_id = int(callback.data.split(":")[1])
+        tournament = await TournamentRepository.get_by_id(tournament_id)
+        
+        if not tournament:
+            await callback.answer("❌ Турнир не найден", show_alert=True)
+            return
+        
+        if not tournament.rules_file_id:
+            await callback.answer("❌ Регламент не загружен", show_alert=True)
+            return
+        
+        # Отправляем файл правил
         try:
             await callback.message.answer_document(
                 document=tournament.rules_file_id,
-                caption=f"📄 <b>Регламент турнира</b>\n\n{escape_html(tournament.rules_file_name or 'Правила.pdf')}",
-                reply_markup=builder.as_markup(),
+                caption=f"📄 <b>Регламент турнира:</b> {escape_html(tournament.rules_file_name or 'Правила.pdf')}",
                 parse_mode="HTML"
             )
+            await callback.answer("✅ Регламент отправлен")
         except Exception as e:
-            logger.error(f"Ошибка отправки файла правил турнира: {e}")
-            # Если не удалось отправить файл, отправляем кнопки отдельным сообщением
-            await callback.message.answer(
-                "─────────────────────\n<b>Выберите действие:</b>",
-                reply_markup=builder.as_markup(),
-                parse_mode="HTML"
-            )
-    else:
-        # Если нет файла правил, отправляем кнопки отдельным сообщением
-        await callback.message.answer(
-            "─────────────────────\n<b>Выберите действие:</b>",
-            reply_markup=builder.as_markup(),
-            parse_mode="HTML"
-        )
-    
-    await callback.answer()
+            logger.error(f"Ошибка отправки файла правил: {e}")
+            await callback.answer("❌ Ошибка отправки файла", show_alert=True)
+            
+    except Exception as e:
+        logger.error(f"Ошибка получения регламента: {e}")
+        await callback.answer("❌ Ошибка", show_alert=True)
 
 
 @tournaments_router.callback_query(F.data.startswith("register_team:"))
