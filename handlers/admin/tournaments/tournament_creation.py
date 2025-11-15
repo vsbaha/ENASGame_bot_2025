@@ -445,7 +445,7 @@ async def process_tournament_registration_start(message: Message, state: FSMCont
 
 *Формат: ДД.ММ.ГГГГ ЧЧ:ММ*
 *Должна быть позже начала регистрации*
-*⏰ Время UTC (GMT+0)*"""
+*⏰ Время UTC (GMT+0, -6 часов от КР)*"""
         
         await safe_send_message(
             message, text, parse_mode="Markdown"
@@ -556,7 +556,8 @@ async def show_tournament_confirmation(message: Message, state: FSMContext):
         # Информация о файле правил
         rules_file_info = ""
         if data.get('tournament_rules_file_id'):
-            rules_file_info = f"\n📄 **Файл правил:** {data.get('tournament_rules_file_name', 'Загружен')}"
+            safe_rules_name = escape_markdown_simple(data.get('tournament_rules_file_name', 'Загружен'))
+            rules_file_info = f"\n📄 **Файл правил:** {safe_rules_name}"
         
         # Информация о логотипе
         logo_info = ""
@@ -569,6 +570,11 @@ async def show_tournament_confirmation(message: Message, state: FSMContext):
         safe_game_name = escape_markdown_simple(game.name if game else 'N/A')
         safe_format = escape_markdown_simple(format_names.get(data['tournament_format'], data['tournament_format']))
         
+        # Экранируем даты (они содержат двоеточия)
+        safe_reg_start = escape_markdown_simple(format_datetime_for_user(data['tournament_registration_start'], 'UTC'))
+        safe_reg_end = escape_markdown_simple(format_datetime_for_user(data['tournament_registration_end'], 'UTC'))
+        safe_start_date = escape_markdown_simple(format_datetime_for_user(data['tournament_start_date'], 'UTC'))
+        
         text = f"""✅ **Подтверждение создания турнира**
 
 🏆 **Название:** {safe_name}
@@ -578,8 +584,8 @@ async def show_tournament_confirmation(message: Message, state: FSMContext):
 👥 **Макс. команд:** {data['tournament_max_teams']}{rules_file_info}{logo_info}
 
 📅 **Даты (UTC):**
-📋 Регистрация: {format_datetime_for_user(data['tournament_registration_start'], 'UTC')} - {format_datetime_for_user(data['tournament_registration_end'], 'UTC')}
-🏁 Начало: {format_datetime_for_user(data['tournament_start_date'], 'UTC')}
+📋 Регистрация: {safe_reg_start} - {safe_reg_end}
+🏁 Начало: {safe_start_date}
 
 **Все данные корректны?**"""
         
@@ -675,9 +681,11 @@ async def confirm_create_tournament(callback: CallbackQuery, state: FSMContext):
             if tournament.logo_file_id:
                 logo_info = "\n🖼️ Логотип: Загружен"
             
+            safe_tournament_name = escape_markdown_simple(tournament.name)
+            
             text = f"""✅ **Турнир успешно создан!**
 
-🏆 **{tournament.name}** (ID: {tournament.id}){rules_info}{logo_info}
+🏆 **{safe_tournament_name}** (ID: {tournament.id}){rules_info}{logo_info}
 
 Турнир добавлен в систему и готов к регистрации участников."""
             
