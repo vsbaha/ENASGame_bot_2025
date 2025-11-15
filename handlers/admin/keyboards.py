@@ -539,6 +539,12 @@ def get_tournament_action_keyboard(tournament_id: int, tournament_status: str) -
     keyboard.extend([
         [
             InlineKeyboardButton(
+                text="📄 Получить регламент",
+                callback_data=f"admin:get_tournament_rules_{tournament_id}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 text="📝 Редактировать",
                 callback_data=f"admin:edit_tournament_details_{tournament_id}"
             )

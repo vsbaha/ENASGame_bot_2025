@@ -90,14 +90,8 @@ async def tournament_settings_menu(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Ошибка загрузки данных", show_alert=True)
 
 
-async def show_tournament_management_info(callback: CallbackQuery, tournament, send_rules_file: bool = False):
-    """Показать информацию о турнире с кнопками управления (helper функция)
-    
-    Args:
-        callback: CallbackQuery
-        tournament: Объект турнира
-        send_rules_file: Если True, отправит файл правил отдельным сообщением
-    """
+async def show_tournament_management_info(callback: CallbackQuery, tournament):
+    """Показать информацию о турнире с кнопками управления (helper функция)"""
     # Статус эмодзи
     status_emoji = {
         'registration': '📝',
@@ -190,17 +184,6 @@ async def show_tournament_management_info(callback: CallbackQuery, tournament, s
             callback.message, text, parse_mode="HTML",
             reply_markup=get_tournament_action_keyboard(tournament.id, tournament.status)
         )
-    
-    # Отправляем файл правил если есть (только если запрошено)
-    if send_rules_file and tournament.rules_file_id:
-        try:
-            await callback.message.answer_document(
-                document=tournament.rules_file_id,
-                caption=f"📄 <b>Правила турнира:</b> {escape_html(tournament.rules_file_name or 'Правила.pdf')}",
-                parse_mode="HTML"
-            )
-        except Exception as e:
-            logger.error(f"Ошибка отправки файла правил: {e}")
 
 
 @router.callback_query(F.data.startswith("admin:manage_tournament_"))
@@ -219,13 +202,44 @@ async def manage_specific_tournament(callback: CallbackQuery, state: FSMContext)
             await callback.answer("❌ Турнир не найден", show_alert=True)
             return
         
-        # При первом открытии турнира отправляем файл правил
-        await show_tournament_management_info(callback, tournament, send_rules_file=True)
+        await show_tournament_management_info(callback, tournament)
         await callback.answer()
         
     except Exception as e:
         logger.error(f"Ошибка получения информации о турнире: {e}")
         await callback.answer("❌ Ошибка получения данных турнира", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("admin:get_tournament_rules_"))
+async def get_tournament_rules(callback: CallbackQuery):
+    """Отправка файла регламента турнира"""
+    try:
+        tournament_id = int(callback.data.split("_")[-1])
+        tournament = await TournamentRepository.get_by_id(tournament_id)
+        
+        if not tournament:
+            await callback.answer("❌ Турнир не найден", show_alert=True)
+            return
+        
+        if not tournament.rules_file_id:
+            await callback.answer("❌ Регламент не загружен", show_alert=True)
+            return
+        
+        # Отправляем файл правил
+        try:
+            await callback.message.answer_document(
+                document=tournament.rules_file_id,
+                caption=f"📄 <b>Регламент турнира:</b> {escape_html(tournament.rules_file_name or 'Правила.pdf')}",
+                parse_mode="HTML"
+            )
+            await callback.answer("✅ Регламент отправлен")
+        except Exception as e:
+            logger.error(f"Ошибка отправки файла правил: {e}")
+            await callback.answer("❌ Ошибка отправки файла", show_alert=True)
+            
+    except Exception as e:
+        logger.error(f"Ошибка получения регламента: {e}")
+        await callback.answer("❌ Ошибка", show_alert=True)
 
 
 @router.callback_query(F.data.startswith("admin:start_tournament_"))
