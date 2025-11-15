@@ -135,14 +135,14 @@ async def show_tournament_management_info(callback: CallbackQuery, tournament, s
     # Получаем количество зарегистрированных команд
     registered_teams = len(tournament.teams) if tournament.teams else 0
     
-    # Описание - первые 100 символов
+    # Описание - первые 100 символов в цитате
     description = ""
     if tournament.description:
         desc = escape_html(tournament.description)
         if len(desc) > 100:
-            description = f"\n\n📝 <i>{desc[:100]}...</i>"
+            description = f"\n\n<blockquote>{desc[:100]}...</blockquote>"
         else:
-            description = f"\n\n📝 <i>{desc}</i>"
+            description = f"\n\n<blockquote>{desc}</blockquote>"
     
     # Форматируем название формата
     format_names = {
