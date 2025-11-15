@@ -675,7 +675,8 @@ async def confirm_create_tournament(callback: CallbackQuery, state: FSMContext):
             # Формируем сообщение с информацией
             rules_info = ""
             if tournament.rules_file_id:
-                rules_info = f"\n📄 Файл правил: {tournament.rules_file_name}"
+                safe_rules_file_name = escape_markdown_simple(tournament.rules_file_name or "Загружен")
+                rules_info = f"\n📄 Файл правил: {safe_rules_file_name}"
             
             logo_info = ""
             if tournament.logo_file_id:
