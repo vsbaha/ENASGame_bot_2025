@@ -11,7 +11,7 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import TelegramObject, BotCommand, BotCommandScopeChat, BotCommandScopeDefault
 
-from settings import config
+from config.settings import settings
 from database.db_manager import init_database
 from database.repositories.user_repository import UserRepository
 from database.models import UserRole
@@ -85,7 +85,8 @@ async def main():
     
     try:
         # Проверяем конфигурацию
-        config.validate()
+        if not settings.bot_token:
+            raise ValueError("BOT_TOKEN не найден в конфигурации")
         logger.info("Конфигурация проверена успешно")
         
     except ValueError as e:
@@ -94,7 +95,7 @@ async def main():
     
     # Создаем бота
     bot = Bot(
-        token=config.BOT_TOKEN,
+        token=settings.bot_token,
         default=DefaultBotProperties(
             parse_mode=ParseMode.HTML
         )

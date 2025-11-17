@@ -6,7 +6,7 @@ from pathlib import Path
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from settings import config
+from config.settings import settings
 from database.models import Base
 
 
@@ -19,8 +19,10 @@ class DatabaseManager:
         db_path.parent.mkdir(exist_ok=True)
         
         # Создаем движок для async SQLite
+        # Формируем URL для SQLite из пути к БД
+        db_url = f"sqlite+aiosqlite:///{settings.database_path}"
         self.engine = create_async_engine(
-            config.DB_URL,
+            db_url,
             echo=False,  # Установить True для отладки SQL запросов
             poolclass=StaticPool,
             connect_args={

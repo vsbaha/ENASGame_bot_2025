@@ -15,7 +15,7 @@ from utils.keyboards import (
     get_region_keyboard,
     get_main_menu_keyboard
 )
-from settings import config
+from config.settings import settings
 from .states import UserStates
 
 # Создаем роутер для регистрации
@@ -38,7 +38,7 @@ async def start_command(message: Message, state: FSMContext):
             username=message.from_user.username,
             full_name=f"{message.from_user.first_name or ''} {message.from_user.last_name or ''}".strip(),
             language="ru",  # Временно захардкожен русский
-            region=config.DEFAULT_REGION
+            region=settings.default_region
         )
         
         # Устанавливаем язык для текущей сессии
