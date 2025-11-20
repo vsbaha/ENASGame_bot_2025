@@ -1,0 +1,17 @@
+[Unit]
+Description=ENAS Tournament Bot
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/ENASGame_bot_2025
+Environment="PATH=/home/ENASGame_bot_2025/venv/bin"
+ExecStart=/home/ENASGame_bot_2025/venv/bin/python /home/ENASGame_bot_2025/main.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
