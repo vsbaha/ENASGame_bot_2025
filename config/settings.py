@@ -27,7 +27,7 @@ class Settings:
         self.support_username = os.getenv("SUPPORT_USERNAME", "support")
         
         # База данных
-        self.database_path = os.getenv("DATABASE_PATH", "database/tournaments.db")
+        self.database_path = os.getenv("DATABASE_PATH", "tournament_bot.db")
         
         # Логирование
         self.log_level = os.getenv("LOG_LEVEL", "INFO")
