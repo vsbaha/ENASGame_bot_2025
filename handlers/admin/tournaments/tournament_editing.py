@@ -667,3 +667,273 @@ async def clear_all_channels(callback: CallbackQuery, state: FSMContext):
     except Exception as e:
         logger.error(f"Ошибка очистки каналов: {e}")
         await callback.answer("❌ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("admin:edit_name_"))
+async def edit_tournament_name(callback: CallbackQuery, state: FSMContext):
+    """Начать редактирование названия турнира"""
+    try:
+        tournament_id = int(callback.data.split("_")[-1])
+        
+        tournament = await TournamentRepository.get_by_id(tournament_id)
+        if not tournament:
+            await callback.answer("❌ Турнир не найден", show_alert=True)
+            return
+        
+        await state.update_data(editing_tournament_id=tournament_id)
+        await state.set_state(AdminStates.editing_tournament_name)
+        
+        from utils.text_formatting import escape_html
+        tournament_name = escape_html(tournament.name)
+        
+        text = f"""📝 <b>Изменение названия турнира</b>
+
+<b>Текущее название:</b> {tournament_name}
+
+Введите новое название турнира:"""
+        
+        keyboard = [[
+            InlineKeyboardButton(
+                text="🔙 Отмена",
+                callback_data=f"admin:edit_tournament_details_{tournament_id}"
+            )
+        ]]
+        
+        await safe_edit_message(
+            callback.message, text, parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+        )
+        await callback.answer()
+        
+    except Exception as e:
+        logger.error(f"Ошибка начала редактирования названия: {e}")
+        await callback.answer("❌ Ошибка", show_alert=True)
+
+
+@router.message(StateFilter(AdminStates.editing_tournament_name))
+async def process_tournament_name_edit(message: Message, state: FSMContext):
+    """Обработка нового названия турнира"""
+    try:
+        data = await state.get_data()
+        tournament_id = data.get('editing_tournament_id')
+        
+        if not tournament_id:
+            await message.answer("❌ Ошибка: турнир не найден")
+            await state.clear()
+            return
+        
+        new_name = message.text.strip()
+        
+        if len(new_name) < 3:
+            await message.answer("❌ Название должно быть не менее 3 символов")
+            return
+        
+        if len(new_name) > 100:
+            await message.answer("❌ Название слишком длинное (максимум 100 символов)")
+            return
+        
+        # Обновляем название
+        await TournamentRepository.update_tournament(tournament_id, name=new_name)
+        
+        from utils.text_formatting import escape_html
+        safe_name = escape_html(new_name)
+        
+        text = f"""✅ <b>Название изменено</b>
+
+<b>Новое название:</b> {safe_name}"""
+        
+        keyboard = [[
+            InlineKeyboardButton(
+                text="🔙 К редактированию",
+                callback_data=f"admin:edit_tournament_details_{tournament_id}"
+            )
+        ]]
+        
+        await message.answer(
+            text, parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+        )
+        await state.clear()
+        
+    except Exception as e:
+        logger.error(f"Ошибка сохранения названия: {e}")
+        await message.answer("❌ Ошибка при сохранении")
+        await state.clear()
+
+
+@router.callback_query(F.data.startswith("admin:edit_description_"))
+async def edit_tournament_description(callback: CallbackQuery, state: FSMContext):
+    """Начать редактирование описания турнира"""
+    try:
+        tournament_id = int(callback.data.split("_")[-1])
+        
+        tournament = await TournamentRepository.get_by_id(tournament_id)
+        if not tournament:
+            await callback.answer("❌ Турнир не найден", show_alert=True)
+            return
+        
+        await state.update_data(editing_tournament_id=tournament_id)
+        await state.set_state(AdminStates.editing_tournament_description)
+        
+        from utils.text_formatting import escape_html
+        current_desc = escape_html(tournament.description) if tournament.description else "Не указано"
+        
+        text = f"""📄 <b>Изменение описания турнира</b>
+
+<b>Текущее описание:</b>
+{current_desc}
+
+Введите новое описание турнира:"""
+        
+        keyboard = [[
+            InlineKeyboardButton(
+                text="🔙 Отмена",
+                callback_data=f"admin:edit_tournament_details_{tournament_id}"
+            )
+        ]]
+        
+        await safe_edit_message(
+            callback.message, text, parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+        )
+        await callback.answer()
+        
+    except Exception as e:
+        logger.error(f"Ошибка начала редактирования описания: {e}")
+        await callback.answer("❌ Ошибка", show_alert=True)
+
+
+@router.message(StateFilter(AdminStates.editing_tournament_description))
+async def process_tournament_description_edit(message: Message, state: FSMContext):
+    """Обработка нового описания турнира"""
+    try:
+        data = await state.get_data()
+        tournament_id = data.get('editing_tournament_id')
+        
+        if not tournament_id:
+            await message.answer("❌ Ошибка: турнир не найден")
+            await state.clear()
+            return
+        
+        new_description = message.text.strip()
+        
+        if len(new_description) > 1000:
+            await message.answer("❌ Описание слишком длинное (максимум 1000 символов)")
+            return
+        
+        # Обновляем описание
+        await TournamentRepository.update_tournament(tournament_id, description=new_description)
+        
+        from utils.text_formatting import escape_html
+        safe_desc = escape_html(new_description)
+        if len(safe_desc) > 200:
+            safe_desc = safe_desc[:200] + "..."
+        
+        text = f"""✅ <b>Описание изменено</b>
+
+<b>Новое описание:</b>
+{safe_desc}"""
+        
+        keyboard = [[
+            InlineKeyboardButton(
+                text="🔙 К редактированию",
+                callback_data=f"admin:edit_tournament_details_{tournament_id}"
+            )
+        ]]
+        
+        await message.answer(
+            text, parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+        )
+        await state.clear()
+        
+    except Exception as e:
+        logger.error(f"Ошибка сохранения описания: {e}")
+        await message.answer("❌ Ошибка при сохранении")
+        await state.clear()
+
+
+@router.callback_query(F.data.startswith("admin:edit_max_teams_"))
+async def edit_tournament_max_teams(callback: CallbackQuery, state: FSMContext):
+    """Начать редактирование максимального количества команд"""
+    try:
+        tournament_id = int(callback.data.split("_")[-1])
+        
+        tournament = await TournamentRepository.get_by_id(tournament_id)
+        if not tournament:
+            await callback.answer("❌ Турнир не найден", show_alert=True)
+            return
+        
+        await state.update_data(editing_tournament_id=tournament_id)
+        await state.set_state(AdminStates.editing_tournament_max_teams)
+        
+        text = f"""👥 <b>Изменение максимального количества команд</b>
+
+<b>Текущее значение:</b> {tournament.max_teams}
+
+Введите новое количество команд (от 2 до 128):"""
+        
+        keyboard = [[
+            InlineKeyboardButton(
+                text="🔙 Отмена",
+                callback_data=f"admin:edit_tournament_details_{tournament_id}"
+            )
+        ]]
+        
+        await safe_edit_message(
+            callback.message, text, parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+        )
+        await callback.answer()
+        
+    except Exception as e:
+        logger.error(f"Ошибка начала редактирования макс. команд: {e}")
+        await callback.answer("❌ Ошибка", show_alert=True)
+
+
+@router.message(StateFilter(AdminStates.editing_tournament_max_teams))
+async def process_tournament_max_teams_edit(message: Message, state: FSMContext):
+    """Обработка нового максимального количества команд"""
+    try:
+        data = await state.get_data()
+        tournament_id = data.get('editing_tournament_id')
+        
+        if not tournament_id:
+            await message.answer("❌ Ошибка: турнир не найден")
+            await state.clear()
+            return
+        
+        try:
+            new_max_teams = int(message.text.strip())
+        except ValueError:
+            await message.answer("❌ Введите корректное число")
+            return
+        
+        if new_max_teams < 2 or new_max_teams > 128:
+            await message.answer("❌ Количество команд должно быть от 2 до 128")
+            return
+        
+        # Обновляем максимальное количество команд
+        await TournamentRepository.update_tournament(tournament_id, max_teams=new_max_teams)
+        
+        text = f"""✅ <b>Максимальное количество команд изменено</b>
+
+<b>Новое значение:</b> {new_max_teams}"""
+        
+        keyboard = [[
+            InlineKeyboardButton(
+                text="🔙 К редактированию",
+                callback_data=f"admin:edit_tournament_details_{tournament_id}"
+            )
+        ]]
+        
+        await message.answer(
+            text, parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+        )
+        await state.clear()
+        
+    except Exception as e:
+        logger.error(f"Ошибка сохранения макс. команд: {e}")
+        await message.answer("❌ Ошибка при сохранении")
+        await state.clear()
