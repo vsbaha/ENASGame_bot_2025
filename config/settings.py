@@ -35,6 +35,10 @@ class Settings:
         # Часовой пояс по умолчанию
         self.timezone_default = os.getenv("TIMEZONE_DEFAULT", "Asia/Bishkek")
         
+        # Настройки по умолчанию для пользователей
+        self.default_language = os.getenv("DEFAULT_LANGUAGE", "ru")
+        self.default_region = os.getenv("DEFAULT_REGION", "kg")
+        
         # Ограничения файлов
         self.max_file_size = 5 * 1024 * 1024  # 5 MB
         self.allowed_image_types = ["image/jpeg", "image/png", "image/webp"]
