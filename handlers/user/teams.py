@@ -15,6 +15,7 @@ from database.repositories.tournament_repository import TournamentRepository
 from database.repositories.game_repository import GameRepository
 from database.models import TeamStatus
 from utils.message_utils import safe_edit_message
+from utils.team_name_validator import validate_team_name, get_validation_help
 from .states import UserStates
 
 # Создаем роутер для команд
@@ -522,13 +523,12 @@ async def process_team_name(message: Message, state: FSMContext):
     
     team_name = message.text.strip()
     
-    # Валидация
-    if len(team_name) < 3:
-        await message.answer("❌ Название слишком короткое (минимум 3 символа).\n\nПопробуйте ещё раз:")
-        return
+    # Валидация названия команды
+    is_valid, error_message = validate_team_name(team_name)
     
-    if len(team_name) > 50:
-        await message.answer("❌ Название слишком длинное (максимум 50 символов).\n\nПопробуйте ещё раз:")
+    if not is_valid:
+        # Отправляем сообщение об ошибке
+        await message.answer(f"{error_message}\n\nПопробуйте ещё раз:")
         return
     
     try:
