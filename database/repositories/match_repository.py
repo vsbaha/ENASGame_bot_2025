@@ -243,12 +243,24 @@ class MatchRepository:
                 participants_map[team.name] = team.id
         
         for challonge_match in challonge_matches:
-            match_data = challonge_match.get("match", challonge_match)
+            # API v2.1 возвращает данные напрямую, без обёртки "match"
+            match_data = challonge_match
             
             challonge_match_id = str(match_data["id"])
             round_number = match_data.get("round", 1)
+            
+            # В API v2.1 participant_id могут быть в points_by_participant или напрямую
             player1_id = match_data.get("player1_id")
             player2_id = match_data.get("player2_id")
+            
+            # Если player_id нет, проверяем points_by_participant
+            if not player1_id and not player2_id:
+                points_data = match_data.get("points_by_participant", [])
+                if len(points_data) >= 2:
+                    player1_id = points_data[0].get("participant_id")
+                    player2_id = points_data[1].get("participant_id")
+                elif len(points_data) == 1:
+                    player1_id = points_data[0].get("participant_id")
             
             # Проверяем, существует ли матч
             existing_match = await MatchRepository.get_by_challonge_id(
@@ -256,9 +268,10 @@ class MatchRepository:
                 challonge_match_id
             )
             
-            # Получаем team_id для участников (если маппинг по ID)
-            team1_id = participants_map.get(player1_id) if isinstance(participants_map, dict) and player1_id in participants_map else None
-            team2_id = participants_map.get(player2_id) if isinstance(participants_map, dict) and player2_id in participants_map else None
+            # Получаем team_id для участников
+            # Преобразуем ID в строку для сравнения (API v2.1 возвращает строки)
+            team1_id = participants_map.get(str(player1_id)) if player1_id and participants_map else None
+            team2_id = participants_map.get(str(player2_id)) if player2_id and participants_map else None
             
             if not existing_match:
                 # Создаем новый матч

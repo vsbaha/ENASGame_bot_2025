@@ -710,45 +710,60 @@ async def view_tournament_bracket(callback: CallbackQuery, state: FSMContext):
             await safe_edit_message(callback.message, text, parse_mode="HTML", reply_markup=keyboard)
             return
         
-        # Группируем матчи по раундам
-        matches_by_round = {}
-        for match in all_matches:
-            round_num = match.round_number
-            if round_num not in matches_by_round:
-                matches_by_round[round_num] = []
-            matches_by_round[round_num].append(match)
+        # Подсчитываем статистику
+        assigned_matches = sum(1 for m in all_matches if m.team1_id or m.team2_id)
         
-        # Формируем текст сетки
-        text = f"""🏆 <b>Сетка турнира</b>
+        # Получаем информацию о формате турнира
+        from utils.bracket_formatter import (
+            get_tournament_format_info,
+            format_bracket_display,
+            format_match_line
+        )
+        
+        format_info = get_tournament_format_info(tournament.format)
+        
+        # Формируем заголовок
+        text = f"""{format_info['icon']} <b>Сетка турнира</b>
 
 <b>Турнир:</b> {escape_html(tournament.name)}
+<b>Формат:</b> {format_info['name']}
 <b>Всего матчей:</b> {len(all_matches)}
+<b>Назначено команд:</b> {assigned_matches}
 
 """
         
-        # Выводим матчи по раундам
-        for round_num in sorted(matches_by_round.keys()):
-            round_matches = matches_by_round[round_num]
+        # Добавляем подсказку если много TBD
+        if assigned_matches < len(all_matches) * 0.3:  # Если назначено менее 30%
+            if tournament.format == 'double_elimination':
+                text += """ℹ️ <i>В Double Elimination турнирах команды назначаются постепенно 
+по мере прохождения. Используйте "Синхронизировать матчи" 
+после обновления в Challonge.</i>
+
+"""
+            else:
+                text += """ℹ️ <i>Команды ещё не назначены на матчи. 
+Используйте "Синхронизировать матчи" после запуска турнира.</i>
+
+"""
+        
+        # Группируем матчи по формату турнира
+        rounds_display = format_bracket_display(all_matches, tournament.format)
+        
+        # Выводим матчи
+        for round_name, round_matches in rounds_display.items():
+            # Если это разделитель (начинается с ═══)
+            if round_name.startswith("═══"):
+                text += f"\n{round_name}\n\n"
+                continue
             
-            # Определяем название раунда
-            from handlers.admin.matches.match_manager import get_round_name
-            round_name = get_round_name(round_num, len(matches_by_round))
+            # Если нет матчей, пропускаем
+            if not round_matches:
+                continue
             
             text += f"<b>{round_name}</b>\n"
             
             for match in round_matches:
-                team1_name = escape_html(match.team1.name if match.team1 else "TBD")
-                team2_name = escape_html(match.team2.name if match.team2 else "TBD")
-                
-                if match.status == MatchStatus.COMPLETED.value:
-                    score = f"{match.team1_score or 0}:{match.team2_score or 0}"
-                    winner_name = escape_html(match.winner.name if match.winner else "N/A")
-                    text += f"   ✅ {team1_name} <b>{score}</b> {team2_name}\n"
-                    text += f"      🏆 Победитель: {winner_name}\n"
-                elif match.status == MatchStatus.IN_PROGRESS.value:
-                    text += f"   🎮 {team1_name} vs {team2_name}\n"
-                else:
-                    text += f"   ⏳ {team1_name} vs {team2_name}\n"
+                text += format_match_line(match, include_score=True)
             
             text += "\n"
         
@@ -756,14 +771,24 @@ async def view_tournament_bracket(callback: CallbackQuery, state: FSMContext):
         if len(text) > 4000:
             text = text[:3900] + "\n\n... <i>(список сокращен)</i>"
         
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [
+        # Добавляем кнопку синхронизации если турнир в Challonge
+        buttons = []
+        if tournament.challonge_id:
+            buttons.append([
                 InlineKeyboardButton(
-                    text="🔙 Назад",
-                    callback_data=f"admin:manage_tournament_{tournament_id}"
+                    text="🔄 Синхронизировать матчи",
+                    callback_data=f"admin:sync_matches_{tournament_id}"
                 )
-            ]
+            ])
+        
+        buttons.append([
+            InlineKeyboardButton(
+                text="🔙 Назад",
+                callback_data=f"admin:manage_tournament_{tournament_id}"
+            )
         ])
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
         
         await safe_edit_message(callback.message, text, parse_mode="HTML", reply_markup=keyboard)
         

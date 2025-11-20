@@ -899,10 +899,10 @@ async def confirm_create_tournament(callback: CallbackQuery, state: FSMContext):
         )
         
         # Создаем турнир в Challonge
-        if not settings.challonge_api_key or not settings.challonge_username:
-            raise Exception("Challonge API не настроен. Проверьте CHALLONGE_API_KEY и CHALLONGE_USERNAME в .env файле")
+        if not settings.challonge_client_id or not settings.challonge_client_secret:
+            raise Exception("Challonge API не настроен. Проверьте CHALLONGE_CLIENT_ID и CHALLONGE_CLIENT_SECRET в .env файле")
         
-        challonge = ChallongeAPI(settings.challonge_api_key, settings.challonge_username)
+        challonge = ChallongeAPI(settings.challonge_client_id, settings.challonge_client_secret, settings.challonge_username)
         
         # Определяем формат для Challonge
         challonge_format = {

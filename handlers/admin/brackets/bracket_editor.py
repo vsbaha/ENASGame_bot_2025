@@ -41,11 +41,11 @@ def get_bracket_editor_keyboard(tournament_id: int, participants: List[Dict]) ->
         ])
         
         # Кнопки выбора команд для обмена
+        # API v2.1 возвращает данные напрямую
         for participant in participants[:20]:  # Максимум 20
-            p_data = participant.get("participant", participant)
-            name = p_data.get("name", "Unknown")
-            seed = p_data.get("seed", "?")
-            participant_id = p_data.get("id")
+            name = participant.get("name", "Unknown")
+            seed = participant.get("seed", "?")
+            participant_id = participant.get("id")
             
             buttons.append([
                 InlineKeyboardButton(
@@ -128,7 +128,7 @@ async def show_bracket_editor(callback: CallbackQuery, state: FSMContext):
             return
         
         # Получаем участников из Challonge
-        challonge = ChallongeAPI(settings.challonge_api_key, settings.challonge_username)
+        challonge = ChallongeAPI(settings.challonge_client_id, settings.challonge_client_secret, settings.challonge_username)
         participants = await challonge.get_participants(tournament.challonge_id)
         
         if not participants:
@@ -193,15 +193,15 @@ async def select_team_for_swap(callback: CallbackQuery, state: FSMContext):
             await callback.answer("❌ Ошибка: турнир не найден", show_alert=True)
             return
         
-        challonge = ChallongeAPI(settings.challonge_api_key, settings.challonge_username)
+        challonge = ChallongeAPI(settings.challonge_client_id, settings.challonge_client_secret, settings.challonge_username)
         participants = await challonge.get_participants(tournament.challonge_id)
         
         # Находим выбранного участника
+        # API v2.1 возвращает данные напрямую
         selected_participant = None
         for p in participants:
-            p_data = p.get("participant", p)
-            if p_data.get("id") == participant_id:
-                selected_participant = p_data
+            if p.get("id") == participant_id:
+                selected_participant = p
                 break
         
         if not selected_participant:
@@ -234,11 +234,11 @@ async def select_team_for_swap(callback: CallbackQuery, state: FSMContext):
                 )
             ])
             
+            # API v2.1 возвращает данные напрямую
             for participant in participants[:20]:
-                p_data = participant.get("participant", participant)
-                name = p_data.get("name", "Unknown")
-                seed = p_data.get("seed", "?")
-                pid = p_data.get("id")
+                name = participant.get("name", "Unknown")
+                seed = participant.get("seed", "?")
+                pid = participant.get("id")
                 
                 # Выделяем выбранную команду
                 if pid == participant_id:

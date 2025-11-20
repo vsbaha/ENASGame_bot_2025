@@ -24,6 +24,7 @@ class TeamStatus(PyEnum):
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
+    BLOCKED = "blocked"  # Заблокирована администратором
 
 
 class TournamentStatus(PyEnum):
@@ -63,7 +64,8 @@ class User(Base):
     
     # Relationships
     created_tournaments: Mapped[List["Tournament"]] = relationship("Tournament", back_populates="creator")
-    teams: Mapped[List["Team"]] = relationship("Team", back_populates="captain")
+    teams: Mapped[List["Team"]] = relationship("Team", foreign_keys="Team.captain_id", back_populates="captain")
+    blocked_teams: Mapped[List["Team"]] = relationship("Team", foreign_keys="Team.blocked_by")
     action_logs: Mapped[List["ActionLog"]] = relationship("ActionLog", back_populates="user")
     notifications: Mapped[List["Notification"]] = relationship("Notification", back_populates="user")
     
@@ -152,12 +154,17 @@ class Team(Base):
     logo_file_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=TeamStatus.PENDING.value)
     rejection_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    block_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    block_scope: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # 'tournament' или 'global'
+    blocked_by: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    blocked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
     # Relationships
     tournament: Mapped["Tournament"] = relationship("Tournament", back_populates="teams")
-    captain: Mapped["User"] = relationship("User", back_populates="teams")
+    captain: Mapped["User"] = relationship("User", foreign_keys=[captain_id], back_populates="teams")
+    blocker: Mapped[Optional["User"]] = relationship("User", foreign_keys=[blocked_by], overlaps="blocked_teams")
     players: Mapped[List["Player"]] = relationship("Player", back_populates="team", cascade="all, delete-orphan")
     team1_matches: Mapped[List["Match"]] = relationship("Match", foreign_keys="Match.team1_id", back_populates="team1")
     team2_matches: Mapped[List["Match"]] = relationship("Match", foreign_keys="Match.team2_id", back_populates="team2")

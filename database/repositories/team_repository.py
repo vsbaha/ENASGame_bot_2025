@@ -179,14 +179,51 @@ class TeamRepository:
     
     @staticmethod
     async def is_captain_registered(captain_id: int, tournament_id: int) -> bool:
-        """Проверка регистрации капитана на турнир"""
+        """Проверка регистрации капитана на турнир (только активные статусы)"""
+        async with get_session() as session:
+            session: AsyncSession
+            
+            # Проверяем только pending и approved команды (rejected и blocked не считаются)
+            stmt = select(Team).where(
+                and_(
+                    Team.captain_id == captain_id,
+                    Team.tournament_id == tournament_id,
+                    Team.status.in_([TeamStatus.PENDING.value, TeamStatus.APPROVED.value])
+                )
+            )
+            
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none() is not None
+    
+    @staticmethod
+    async def is_captain_globally_blocked(captain_id: int) -> bool:
+        """Проверка глобальной блокировки капитана"""
         async with get_session() as session:
             session: AsyncSession
             
             stmt = select(Team).where(
                 and_(
                     Team.captain_id == captain_id,
-                    Team.tournament_id == tournament_id
+                    Team.status == TeamStatus.BLOCKED.value,
+                    Team.block_scope == "global"
+                )
+            )
+            
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none() is not None
+    
+    @staticmethod
+    async def is_captain_blocked_on_tournament(captain_id: int, tournament_id: int) -> bool:
+        """Проверка блокировки капитана на конкретном турнире"""
+        async with get_session() as session:
+            session: AsyncSession
+            
+            stmt = select(Team).where(
+                and_(
+                    Team.captain_id == captain_id,
+                    Team.tournament_id == tournament_id,
+                    Team.status == TeamStatus.BLOCKED.value,
+                    Team.block_scope == "tournament"
                 )
             )
             
@@ -309,7 +346,7 @@ class TeamRepository:
     
     @staticmethod
     async def get_blocked_teams() -> List[Team]:
-        """Получение заблокированных команд (отклоненные команды)"""
+        """Получение заблокированных команд"""
         async with get_session() as session:
             session: AsyncSession
             
@@ -320,8 +357,8 @@ class TeamRepository:
                     selectinload(Team.captain),
                     selectinload(Team.tournament)
                 )
-                .where(Team.status == TeamStatus.REJECTED.value)
-                .order_by(Team.created_at.desc())
+                .where(Team.status == TeamStatus.BLOCKED.value)
+                .order_by(Team.blocked_at.desc())
             )
             
             result = await session.execute(stmt)
@@ -338,9 +375,49 @@ class TeamRepository:
         return await TeamRepository.update_team_status(team_id, TeamStatus.REJECTED, reason)
     
     @staticmethod
-    async def block_team(team_id: int, reason: str = None) -> bool:
-        """Блокировка команды (отклонение с причиной)"""
-        return await TeamRepository.update_team_status(team_id, TeamStatus.REJECTED, reason)
+    async def block_team(team_id: int, reason: str, scope: str = "tournament", blocked_by: int = None) -> bool:
+        """Блокировка команды"""
+        from datetime import datetime
+        async with get_session() as session:
+            session: AsyncSession
+            
+            stmt = (
+                update(Team)
+                .where(Team.id == team_id)
+                .values(
+                    status=TeamStatus.BLOCKED.value,
+                    block_reason=reason,
+                    block_scope=scope,
+                    blocked_by=blocked_by,
+                    blocked_at=datetime.utcnow()
+                )
+            )
+            
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount > 0
+    
+    @staticmethod
+    async def unblock_team(team_id: int) -> bool:
+        """Разблокировка команды"""
+        async with get_session() as session:
+            session: AsyncSession
+            
+            stmt = (
+                update(Team)
+                .where(Team.id == team_id)
+                .values(
+                    status=TeamStatus.APPROVED.value,
+                    block_reason=None,
+                    block_scope=None,
+                    blocked_by=None,
+                    blocked_at=None
+                )
+            )
+            
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount > 0
     
     @staticmethod
     async def get_total_count() -> int:
@@ -599,6 +676,16 @@ class TeamRepository:
             result = await session.execute(stmt)
             await session.commit()
             return result.rowcount > 0
+    
+    @staticmethod
+    async def update_team_name(team_id: int, name: str) -> bool:
+        """Обновление названия команды"""
+        return await TeamRepository.update_team(team_id, name=name)
+    
+    @staticmethod
+    async def update_team_description(team_id: int, description: str) -> bool:
+        """Обновление описания команды"""
+        return await TeamRepository.update_team(team_id, description=description)
     
     @staticmethod
     async def delete_by_id(team_id: int) -> bool:

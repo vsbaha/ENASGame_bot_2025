@@ -13,6 +13,7 @@ from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 
 from database.repositories import UserRepository, TeamRepository
+from database.db_manager import get_session
 from utils.message_utils import safe_edit_message
 from .states import AdminStates
 from .keyboards import get_team_moderation_keyboard, get_team_action_keyboard
@@ -564,21 +565,651 @@ async def view_team_details(callback: CallbackQuery, state: FSMContext):
 {players_text}
 """
 
+    # Формируем кнопки в зависимости от статуса
+    buttons = [
+        [InlineKeyboardButton(text="📝 Редактировать", callback_data=f"admin:edit_team_{team_id}")]
+    ]
+    
+    if team.status == "blocked":
+        buttons.append([InlineKeyboardButton(text="✅ Разблокировать", callback_data=f"admin:unblock_team_{team_id}")])
+    else:
+        buttons.append([InlineKeyboardButton(text="🚫 Заблокировать", callback_data=f"admin:block_team_{team_id}")])
+    
+    buttons.append([InlineKeyboardButton(text="🔄 Изменить статус", callback_data=f"admin:change_status_{team_id}")])
+    buttons.append(back_row("admin:teams"))
+    
     await safe_edit_message(
         callback.message,
         text,
         parse_mode="Markdown",
-        reply_markup=kb(
-            [
-                [
-                    InlineKeyboardButton(text="📝 Редактировать", callback_data=f"admin:edit_team_{team_id}"),
-                    InlineKeyboardButton(text="🚫 Заблокировать", callback_data=f"admin:block_team_{team_id}"),
-                ],
-                back_row("admin:teams"),
-            ]
-        ),
+        reply_markup=kb(buttons),
     )
     await callback.answer()
+
+
+@router.callback_query(F.data.regexp(r"^admin:edit_team_\d+$"))
+async def edit_team_menu(callback: CallbackQuery, state: FSMContext):
+    """Меню редактирования команды"""
+    team_id = int(callback.data.split("_")[-1])
+    team = await _get_team_or_answer_cb(callback, team_id)
+    if not team:
+        return
+
+    text = f"""
+📝 Редактирование команды
+
+👥 Команда: {team.name}
+🏆 Турнир: {tournament_name(team)}
+
+Выберите, что хотите изменить:
+"""
+    
+    await safe_edit_message(
+        callback.message,
+        text,
+        parse_mode="Markdown",
+        reply_markup=kb([
+            [
+                InlineKeyboardButton(text="📝 Изменить название", callback_data=f"admin:edit_team_name_{team_id}"),
+            ],
+            [
+                InlineKeyboardButton(text="🖼 Изменить логотип", callback_data=f"admin:edit_team_logo_{team_id}"),
+            ],
+            [
+                InlineKeyboardButton(text="👥 Управление составом", callback_data=f"admin:manage_roster_{team_id}"),
+            ],
+            [
+                InlineKeyboardButton(text="🔙 Назад", callback_data=f"admin:team_details_{team_id}"),
+            ]
+        ])
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.regexp(r"^admin:edit_team_name_\d+$"))
+async def start_edit_team_name(callback: CallbackQuery, state: FSMContext):
+    """Начало редактирования названия команды"""
+    team_id = int(callback.data.split("_")[-1])
+    team = await _get_team_or_answer_cb(callback, team_id)
+    if not team:
+        return
+
+    text = f"""
+📝 Изменение названия команды
+
+Текущее название: {team.name}
+
+Введите новое название команды:
+"""
+    
+    await safe_edit_message(
+        callback.message,
+        text,
+        parse_mode="Markdown",
+        reply_markup=kb([[InlineKeyboardButton(text="🔙 Отменить", callback_data=f"admin:edit_team_{team_id}")]])
+    )
+    
+    await state.set_state(AdminStates.editing_team_name)
+    await state.update_data(team_id=team_id)
+    await callback.answer()
+
+
+@router.message(StateFilter(AdminStates.editing_team_name))
+async def process_edit_team_name(message: Message, state: FSMContext):
+    """Обработка нового названия команды"""
+    data = await state.get_data()
+    team_id = data.get("team_id")
+    new_name = (message.text or "").strip()
+
+    if not team_id:
+        await message.answer("❌ Ошибка: команда не найдена", parse_mode="Markdown")
+        await state.clear()
+        return
+
+    if not new_name:
+        await message.answer("❌ Название не может быть пустым", parse_mode="Markdown")
+        return
+
+    if len(new_name) > 50:
+        await message.answer("❌ Название слишком длинное (максимум 50 символов)", parse_mode="Markdown")
+        return
+
+    team = await _get_team_or_reply_msg(message, int(team_id))
+    if not team:
+        await state.clear()
+        return
+
+    try:
+        old_name = team.name
+        await TeamRepository.update_team_name(int(team_id), new_name)
+        
+        text = f"""
+✅ Название команды изменено
+
+Старое название: {old_name}
+Новое название: {new_name}
+"""
+        
+        await message.answer(
+            text,
+            parse_mode="Markdown",
+            reply_markup=kb([
+                [InlineKeyboardButton(text="👥 К деталям команды", callback_data=f"admin:team_details_{team_id}")],
+                [InlineKeyboardButton(text="🔙 К списку команд", callback_data="admin:teams")]
+            ])
+        )
+        await state.clear()
+    except Exception as e:
+        logger.error(f"Ошибка при изменении названия команды {team_id}: {e}")
+        await message.answer("❌ Ошибка при изменении названия", parse_mode="Markdown")
+        await state.clear()
+
+
+@router.callback_query(F.data.regexp(r"^admin:edit_team_logo_\d+$"))
+async def start_edit_team_logo(callback: CallbackQuery, state: FSMContext):
+    """Начало редактирования логотипа команды"""
+    team_id = int(callback.data.split("_")[-1])
+    team = await _get_team_or_answer_cb(callback, team_id)
+    if not team:
+        return
+    
+    text = f"""
+🖼 Изменение логотипа команды
+
+👥 Команда: {team.name}
+
+Загрузите новый логотип команды.
+
+⚠️ Требования:
+▪️ Формат: JPG, PNG
+▪️ Размер: до 5 МБ
+▪️ Логотип должен быть квадратным (512x512, 1024x1024)
+"""
+    
+    # Отправляем новое сообщение для загрузки фото
+    await callback.message.answer(
+        text,
+        parse_mode="Markdown",
+        reply_markup=kb([[InlineKeyboardButton(text="🔙 Отменить", callback_data=f"admin:edit_team_{team_id}")]])
+    )
+    
+    await state.set_state(AdminStates.editing_team_logo)
+    await state.update_data(team_id=team_id)
+    await callback.answer()
+
+
+@router.message(StateFilter(AdminStates.editing_team_logo), F.photo)
+async def process_edit_team_logo(message: Message, state: FSMContext):
+    """Обработка нового логотипа команды"""
+    data = await state.get_data()
+    team_id = data.get("team_id")
+
+    if not team_id:
+        await message.answer("❌ Ошибка: команда не найдена", parse_mode="Markdown")
+        await state.clear()
+        return
+
+    team = await _get_team_or_reply_msg(message, int(team_id))
+    if not team:
+        await state.clear()
+        return
+
+    try:
+        # Берём самое большое фото
+        photo = message.photo[-1]
+        
+        # Проверка размера (5 МБ)
+        if photo.file_size > 5242880:
+            await message.answer("❌ Файл слишком большой. Максимальный размер: 5 МБ.\n\nПопробуйте другой файл:")
+            return
+        
+        # Проверяем квадратность (допуск ±10%)
+        width = photo.width
+        height = photo.height
+        ratio = width / height if height > 0 else 0
+        
+        if ratio < 0.9 or ratio > 1.1:
+            await message.answer(
+                f"⚠️ Логотип должен быть квадратным!\n\n"
+                f"Текущее соотношение: {width}x{height}\n"
+                f"Пожалуйста, загрузите квадратное изображение."
+            )
+            return
+        
+        # Обновляем логотип
+        await TeamRepository.update_team(int(team_id), logo_file_id=photo.file_id)
+        
+        text = f"""
+✅ Логотип команды изменён
+
+👥 Команда: {team.name}
+"""
+        
+        # Отправляем новый логотип
+        await message.answer_photo(
+            photo=photo.file_id,
+            caption=text,
+            parse_mode="Markdown",
+            reply_markup=kb([
+                [InlineKeyboardButton(text="👥 К деталям команды", callback_data=f"admin:team_details_{team_id}")],
+                [InlineKeyboardButton(text="🔙 К списку команд", callback_data="admin:teams")]
+            ])
+        )
+        await state.clear()
+    except Exception as e:
+        logger.error(f"Ошибка при изменении логотипа команды {team_id}: {e}")
+        await message.answer("❌ Ошибка при изменении логотипа", parse_mode="Markdown")
+        await state.clear()
+
+
+@router.callback_query(F.data.regexp(r"^admin:manage_roster_\d+$"))
+async def manage_team_roster(callback: CallbackQuery, state: FSMContext):
+    """Управление составом команды"""
+    from database.repositories import PlayerRepository
+    
+    team_id = int(callback.data.split("_")[-1])
+    team = await _get_team_or_answer_cb(callback, team_id)
+    if not team:
+        return
+
+    # Получаем игроков
+    main_players = await PlayerRepository.get_main_players(team_id)
+    substitute_players = await PlayerRepository.get_substitute_players(team_id)
+    
+    text = f"""
+👥 Управление составом
+
+📋 Команда: {team.name}
+🏆 Турнир: {tournament_name(team)}
+
+**Основной состав ({len(main_players)}):**
+"""
+    
+    for i, player in enumerate(main_players, 1):
+        text += f"{i}. {player.nickname} (`{player.game_id}`)\n"
+    
+    if substitute_players:
+        text += f"\n**Запасные ({len(substitute_players)}):**\n"
+        for i, player in enumerate(substitute_players, 1):
+            text += f"{i}. {player.nickname} (`{player.game_id}`)\n"
+    
+    text += "\nВыберите действие:"
+    
+    # Создаём кнопки для каждого игрока
+    buttons = []
+    
+    # Основной состав
+    for player in main_players:
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"✏️ {player.nickname}",
+                callback_data=f"admin:edit_player_{player.id}"
+            ),
+            InlineKeyboardButton(
+                text="❌",
+                callback_data=f"admin:remove_player_{player.id}_{team_id}"
+            )
+        ])
+    
+    # Запасные
+    for player in substitute_players:
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"✏️ {player.nickname} (зап.)",
+                callback_data=f"admin:edit_player_{player.id}"
+            ),
+            InlineKeyboardButton(
+                text="❌",
+                callback_data=f"admin:remove_player_{player.id}_{team_id}"
+            )
+        ])
+    
+    # Кнопки управления
+    buttons.extend([
+        [
+            InlineKeyboardButton(
+                text="➕ Добавить игрока",
+                callback_data=f"admin:add_player_{team_id}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="🔙 Назад",
+                callback_data=f"admin:edit_team_{team_id}"
+            )
+        ]
+    ])
+    
+    await safe_edit_message(
+        callback.message,
+        text,
+        parse_mode="Markdown",
+        reply_markup=kb(buttons)
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.regexp(r"^admin:add_player_\d+$"))
+async def add_roster_player(callback: CallbackQuery, state: FSMContext):
+    """Начало добавления игрока"""
+    team_id = int(callback.data.split("_")[-1])
+    team = await _get_team_or_answer_cb(callback, team_id)
+    if not team:
+        return
+    
+    text = f"""
+➕ Добавление игрока
+
+📋 Команда: {team.name}
+
+Введите данные игрока в формате:
+`Никнейм | Game ID | Тип`
+
+**Тип:** `основной` или `запасной`
+
+💡 Пример:
+`ProPlayer | 123456789 | основной`
+`SubPlayer | 987654321 | запасной`
+"""
+    
+    await safe_edit_message(
+        callback.message,
+        text,
+        parse_mode="Markdown",
+        reply_markup=kb([[InlineKeyboardButton(text="🔙 Отменить", callback_data=f"admin:manage_roster_{team_id}")]])
+    )
+    
+    await state.set_state(AdminStates.adding_roster_player)
+    await state.update_data(team_id=team_id)
+    await callback.answer()
+
+
+@router.message(StateFilter(AdminStates.adding_roster_player))
+async def process_add_roster_player(message: Message, state: FSMContext):
+    """Обработка добавления игрока"""
+    from database.repositories import PlayerRepository
+    
+    data = await state.get_data()
+    team_id = data.get("team_id")
+    
+    if not team_id:
+        await message.answer("❌ Ошибка: команда не найдена")
+        await state.clear()
+        return
+    
+    # Парсим ввод
+    parts = [p.strip() for p in message.text.split("|")]
+    
+    if len(parts) != 3:
+        await message.answer("❌ Неверный формат. Используйте:\n`Никнейм | Game ID | Тип`\n\nПопробуйте ещё раз:", parse_mode="Markdown")
+        return
+    
+    nickname, game_id, player_type = parts
+    player_type = player_type.lower()
+    
+    if player_type not in ["основной", "запасной"]:
+        await message.answer("❌ Тип должен быть 'основной' или 'запасной'.\n\nПопробуйте ещё раз:")
+        return
+    
+    is_substitute = player_type == "запасной"
+    
+    try:
+        # Добавляем игрока
+        player = await PlayerRepository.add_player(
+            team_id=int(team_id),
+            nickname=nickname,
+            game_id=game_id,
+            is_substitute=is_substitute
+        )
+        
+        if player:
+            type_text = "запасных" if is_substitute else "основной состав"
+            text = f"""
+✅ Игрок добавлен
+
+👤 Никнейм: {nickname}
+🆔 Game ID: {game_id}
+📊 Тип: {type_text}
+"""
+            await message.answer(
+                text,
+                parse_mode="Markdown",
+                reply_markup=kb([
+                    [InlineKeyboardButton(text="👥 К составу", callback_data=f"admin:manage_roster_{team_id}")],
+                    [InlineKeyboardButton(text="🔙 К команде", callback_data=f"admin:team_details_{team_id}")]
+                ])
+            )
+            await state.clear()
+        else:
+            await message.answer("❌ Ошибка добавления игрока")
+            await state.clear()
+    except Exception as e:
+        logger.error(f"Ошибка добавления игрока: {e}")
+        await message.answer("❌ Ошибка добавления игрока")
+        await state.clear()
+
+
+@router.callback_query(F.data.regexp(r"^admin:remove_player_\d+_\d+$"))
+async def remove_roster_player(callback: CallbackQuery, state: FSMContext):
+    """Удаление игрока из состава"""
+    from database.repositories import PlayerRepository
+    
+    parts = callback.data.split("_")
+    player_id = int(parts[2])
+    team_id = int(parts[3])
+    
+    try:
+        # Получаем информацию об игроке перед удалением
+        players = await PlayerRepository.get_team_players(team_id)
+        player_to_remove = next((p for p in players if p.id == player_id), None)
+        
+        if not player_to_remove:
+            await callback.answer("❌ Игрок не найден", show_alert=True)
+            return
+        
+        # Удаляем игрока
+        success = await PlayerRepository.remove_player(player_id)
+        
+        if success:
+            await callback.answer(f"✅ Игрок {player_to_remove.nickname} удалён", show_alert=True)
+            # Обновляем список
+            await manage_team_roster(callback, state)
+        else:
+            await callback.answer("❌ Ошибка удаления", show_alert=True)
+    except Exception as e:
+        logger.error(f"Ошибка удаления игрока: {e}")
+        await callback.answer("❌ Ошибка удаления", show_alert=True)
+
+
+@router.callback_query(F.data.regexp(r"^admin:edit_player_\d+$"))
+async def edit_roster_player_menu(callback: CallbackQuery, state: FSMContext):
+    """Меню редактирования игрока"""
+    from database.repositories import PlayerRepository
+    
+    player_id = int(callback.data.split("_")[-1])
+    
+    # Получаем игрока
+    players = await PlayerRepository.get_team_players(0)  # Получим через прямой запрос
+    async with get_session() as session:
+        from database.models import Player
+        player = await session.get(Player, player_id)
+        
+        if not player:
+            await callback.answer("❌ Игрок не найден", show_alert=True)
+            return
+        
+        type_text = "Запасной" if player.is_substitute else "Основной состав"
+        
+        text = f"""
+✏️ Редактирование игрока
+
+👤 Никнейм: {player.nickname}
+🆔 Game ID: {player.game_id}
+📊 Тип: {type_text}
+
+Выберите, что хотите изменить:
+"""
+        
+        await safe_edit_message(
+            callback.message,
+            text,
+            parse_mode="Markdown",
+            reply_markup=kb([
+                [
+                    InlineKeyboardButton(
+                        text="✏️ Изменить никнейм",
+                        callback_data=f"admin:edit_player_nick_{player_id}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="🆔 Изменить Game ID",
+                        callback_data=f"admin:edit_player_gameid_{player_id}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="🔙 Назад к составу",
+                        callback_data=f"admin:manage_roster_{player.team_id}"
+                    )
+                ]
+            ])
+        )
+        await callback.answer()
+
+
+@router.callback_query(F.data.regexp(r"^admin:edit_player_nick_\d+$"))
+async def start_edit_player_nickname(callback: CallbackQuery, state: FSMContext):
+    """Начало редактирования никнейма"""
+    player_id = int(callback.data.split("_")[-1])
+    
+    async with get_session() as session:
+        from database.models import Player
+        player = await session.get(Player, player_id)
+        
+        if not player:
+            await callback.answer("❌ Игрок не найден", show_alert=True)
+            return
+        
+        text = f"""
+✏️ Изменение никнейма
+
+Текущий никнейм: {player.nickname}
+
+Введите новый никнейм:
+"""
+        
+        await safe_edit_message(
+            callback.message,
+            text,
+            parse_mode="Markdown",
+            reply_markup=kb([[InlineKeyboardButton(text="🔙 Отменить", callback_data=f"admin:edit_player_{player_id}")]])
+        )
+        
+        await state.set_state(AdminStates.editing_roster_player_nickname)
+        await state.update_data(player_id=player_id, team_id=player.team_id)
+        await callback.answer()
+
+
+@router.message(StateFilter(AdminStates.editing_roster_player_nickname))
+async def process_edit_player_nickname(message: Message, state: FSMContext):
+    """Обработка нового никнейма"""
+    from database.repositories import PlayerRepository
+    
+    data = await state.get_data()
+    player_id = data.get("player_id")
+    team_id = data.get("team_id")
+    new_nickname = message.text.strip()
+    
+    if not new_nickname:
+        await message.answer("❌ Никнейм не может быть пустым")
+        return
+    
+    try:
+        success = await PlayerRepository.update_player(player_id, nickname=new_nickname)
+        
+        if success:
+            await message.answer(
+                f"✅ Никнейм изменён на: {new_nickname}",
+                reply_markup=kb([
+                    [InlineKeyboardButton(text="👥 К составу", callback_data=f"admin:manage_roster_{team_id}")],
+                ])
+            )
+            await state.clear()
+        else:
+            await message.answer("❌ Ошибка обновления")
+            await state.clear()
+    except Exception as e:
+        logger.error(f"Ошибка обновления никнейма: {e}")
+        await message.answer("❌ Ошибка обновления")
+        await state.clear()
+
+
+@router.callback_query(F.data.regexp(r"^admin:edit_player_gameid_\d+$"))
+async def start_edit_player_gameid(callback: CallbackQuery, state: FSMContext):
+    """Начало редактирования Game ID"""
+    player_id = int(callback.data.split("_")[-1])
+    
+    async with get_session() as session:
+        from database.models import Player
+        player = await session.get(Player, player_id)
+        
+        if not player:
+            await callback.answer("❌ Игрок не найден", show_alert=True)
+            return
+        
+        text = f"""
+🆔 Изменение Game ID
+
+Текущий Game ID: {player.game_id}
+
+Введите новый Game ID:
+"""
+        
+        await safe_edit_message(
+            callback.message,
+            text,
+            parse_mode="Markdown",
+            reply_markup=kb([[InlineKeyboardButton(text="🔙 Отменить", callback_data=f"admin:edit_player_{player_id}")]])
+        )
+        
+        await state.set_state(AdminStates.editing_roster_player_game_id)
+        await state.update_data(player_id=player_id, team_id=player.team_id)
+        await callback.answer()
+
+
+@router.message(StateFilter(AdminStates.editing_roster_player_game_id))
+async def process_edit_player_gameid(message: Message, state: FSMContext):
+    """Обработка нового Game ID"""
+    from database.repositories import PlayerRepository
+    
+    data = await state.get_data()
+    player_id = data.get("player_id")
+    team_id = data.get("team_id")
+    new_game_id = message.text.strip()
+    
+    if not new_game_id:
+        await message.answer("❌ Game ID не может быть пустым")
+        return
+    
+    try:
+        success = await PlayerRepository.update_player(player_id, game_id=new_game_id)
+        
+        if success:
+            await message.answer(
+                f"✅ Game ID изменён на: {new_game_id}",
+                reply_markup=kb([
+                    [InlineKeyboardButton(text="👥 К составу", callback_data=f"admin:manage_roster_{team_id}")],
+                ])
+            )
+            await state.clear()
+        else:
+            await message.answer("❌ Ошибка обновления")
+            await state.clear()
+    except Exception as e:
+        logger.error(f"Ошибка обновления Game ID: {e}")
+        await message.answer("❌ Ошибка обновления")
+        await state.clear()
 
 
 @router.callback_query(F.data.regexp(r"^admin:block_team_\d+$"))
@@ -592,6 +1223,56 @@ async def block_team(callback: CallbackQuery, state: FSMContext):
 🚫 Блокировка команды
 
 👥 Команда: {team.name}
+🏆 Турнир: {tournament_name(team)}
+
+Выберите область блокировки:
+"""
+    await safe_edit_message(
+        callback.message,
+        text,
+        parse_mode="Markdown",
+        reply_markup=kb([
+            [
+                InlineKeyboardButton(
+                    text="🏆 Только этот турнир",
+                    callback_data=f"admin:block_scope_tournament_{team_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🌐 Все турниры",
+                    callback_data=f"admin:block_scope_global_{team_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔙 Отменить",
+                    callback_data=f"admin:team_details_{team_id}"
+                )
+            ]
+        ])
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.regexp(r"^admin:block_scope_(tournament|global)_\d+$"))
+async def block_team_select_scope(callback: CallbackQuery, state: FSMContext):
+    """Выбор области блокировки"""
+    parts = callback.data.split("_")
+    scope = parts[2]  # tournament или global
+    team_id = int(parts[3])
+    
+    team = await _get_team_or_answer_cb(callback, team_id)
+    if not team:
+        return
+    
+    scope_text = "только на этот турнир" if scope == "tournament" else "на все турниры"
+    
+    text = f"""
+🚫 Блокировка команды
+
+👥 Команда: {team.name}
+🚫 Область: {scope_text}
 
 Введите причину блокировки:
 (Это сообщение получит капитан команды)
@@ -603,7 +1284,7 @@ async def block_team(callback: CallbackQuery, state: FSMContext):
         reply_markup=kb([[InlineKeyboardButton(text="🔙 Отменить", callback_data=f"admin:team_details_{team_id}")]]),
     )
     await state.set_state(AdminStates.blocking_team)
-    await state.update_data(team_id=team_id)
+    await state.update_data(team_id=team_id, block_scope=scope)
     await callback.answer()
 
 
@@ -624,11 +1305,58 @@ async def process_team_blocking_reason(message: Message, state: FSMContext):
         return
 
     try:
-        await TeamRepository.update_status(int(team_id), "rejected")
+        from utils.text_formatting import escape_html
+        from datetime import datetime
+        
+        block_scope = data.get("block_scope", "tournament")
+        
+        # Получаем админа
+        admin = await UserRepository.get_by_telegram_id(message.from_user.id)
+        
+        # Блокируем команду
+        await TeamRepository.block_team(
+            team_id=int(team_id),
+            reason=reason,
+            scope=block_scope,
+            blocked_by=admin.id if admin else None
+        )
+        
+        # Отправляем уведомление капитану
+        captain = await UserRepository.get_by_id(team.captain_id)
+        if captain:
+            team_name_escaped = escape_html(team.name)
+            tournament_name = escape_html(team.tournament.name if hasattr(team, 'tournament') and team.tournament else 'Неизвестный')
+            reason_escaped = escape_html(reason)
+            
+            scope_text = "только на этот турнир" if block_scope == "tournament" else "на все турниры"
+            
+            captain_text = f"""🚫 <b>Ваша команда заблокирована</b>
+
+👥 <b>Команда:</b> {team_name_escaped}
+🏆 <b>Турнир:</b> {tournament_name}
+🚫 <b>Область блокировки:</b> {scope_text}
+
+📝 <b>Причина блокировки:</b>
+{reason_escaped}
+
+Для получения дополнительной информации обратитесь к администраторам."""
+            
+            try:
+                await message.bot.send_message(
+                    chat_id=captain.telegram_id,
+                    text=captain_text,
+                    parse_mode="HTML"
+                )
+                logger.info(f"Уведомление о блокировке отправлено капитану {captain.telegram_id}")
+            except Exception as e:
+                logger.error(f"Ошибка отправки уведомления капитану: {e}")
+        
+        scope_text = "только на этот турнир" if block_scope == "tournament" else "на все турниры"
         text = f"""
 🚫 Команда заблокирована
 
-👥 Команда "{team.name}" заблокирована.
+👥 Команда: "{team.name}"
+🚫 Область: {scope_text}
 Причина: {reason}
 
 Капитан получил уведомление.
@@ -643,6 +1371,124 @@ async def process_team_blocking_reason(message: Message, state: FSMContext):
         logger.error(f"Ошибка при блокировке команды {team_id}: {e}")
         await message.answer("❌ Ошибка при блокировке команды", parse_mode="Markdown")
         await state.clear()
+
+
+@router.callback_query(F.data.regexp(r"^admin:unblock_team_\d+$"))
+async def unblock_team(callback: CallbackQuery, state: FSMContext):
+    """Разблокировка команды"""
+    team_id = int(callback.data.split("_")[-1])
+    team = await _get_team_or_answer_cb(callback, team_id)
+    if not team:
+        return
+    
+    try:
+        await TeamRepository.unblock_team(team_id)
+        
+        # Уведомляем капитана
+        from utils.text_formatting import escape_html
+        captain = await UserRepository.get_by_id(team.captain_id)
+        if captain:
+            team_name_escaped = escape_html(team.name)
+            tournament_name = escape_html(team.tournament.name if hasattr(team, 'tournament') and team.tournament else 'Неизвестный')
+            
+            captain_text = f"""✅ <b>Ваша команда разблокирована!</b>
+
+👥 <b>Команда:</b> {team_name_escaped}
+🏆 <b>Турнир:</b> {tournament_name}
+
+Теперь вы снова можете участвовать в турнирах."""
+            
+            try:
+                await callback.bot.send_message(
+                    chat_id=captain.telegram_id,
+                    text=captain_text,
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logger.error(f"Ошибка отправки уведомления капитану: {e}")
+        
+        await callback.answer("✅ Команда разблокирована", show_alert=True)
+        # Возвращаемся к деталям команды
+        await view_team_details(callback, state)
+        
+    except Exception as e:
+        logger.error(f"Ошибка разблокировки команды: {e}")
+        await callback.answer("❌ Ошибка разблокировки", show_alert=True)
+
+
+@router.callback_query(F.data.regexp(r"^admin:change_status_\d+$"))
+async def change_team_status_menu(callback: CallbackQuery, state: FSMContext):
+    """Меню изменения статуса команды"""
+    team_id = int(callback.data.split("_")[-1])
+    team = await _get_team_or_answer_cb(callback, team_id)
+    if not team:
+        return
+    
+    current_status_text = {
+        "pending": "⏳ Ожидает модерации",
+        "approved": "✅ Одобрена",
+        "rejected": "❌ Отклонена",
+        "blocked": "🚫 Заблокирована"
+    }.get(team.status, team.status)
+    
+    text = f"""
+🔄 Изменение статуса команды
+
+👥 Команда: {team.name}
+📊 Текущий статус: {current_status_text}
+
+Выберите новый статус:
+"""
+    
+    buttons = []
+    
+    if team.status != "pending":
+        buttons.append([InlineKeyboardButton(text="⏳ Ожидает модерации", callback_data=f"admin:set_status_pending_{team_id}")])
+    
+    if team.status != "approved":
+        buttons.append([InlineKeyboardButton(text="✅ Одобрить", callback_data=f"admin:set_status_approved_{team_id}")])
+    
+    if team.status != "rejected":
+        buttons.append([InlineKeyboardButton(text="❌ Отклонить", callback_data=f"admin:set_status_rejected_{team_id}")])
+    
+    buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data=f"admin:team_details_{team_id}")])
+    
+    await safe_edit_message(
+        callback.message,
+        text,
+        parse_mode="Markdown",
+        reply_markup=kb(buttons)
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.regexp(r"^admin:set_status_(pending|approved|rejected)_\d+$"))
+async def set_team_status(callback: CallbackQuery, state: FSMContext):
+    """Установка нового статуса команды"""
+    parts = callback.data.split("_")
+    new_status = parts[2]
+    team_id = int(parts[3])
+    
+    team = await _get_team_or_answer_cb(callback, team_id)
+    if not team:
+        return
+    
+    try:
+        await TeamRepository.update_status(team_id, new_status)
+        
+        status_text = {
+            "pending": "⏳ Ожидает модерации",
+            "approved": "✅ Одобрена",
+            "rejected": "❌ Отклонена"
+        }.get(new_status, new_status)
+        
+        await callback.answer(f"✅ Статус изменён на: {status_text}", show_alert=True)
+        # Возвращаемся к деталям команды
+        await view_team_details(callback, state)
+        
+    except Exception as e:
+        logger.error(f"Ошибка изменения статуса: {e}")
+        await callback.answer("❌ Ошибка изменения статуса", show_alert=True)
 
 
 @router.callback_query(F.data == "admin:search_team")

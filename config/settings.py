@@ -48,8 +48,9 @@ class Settings:
         self.max_player_nickname_length = 30
         self.max_channels_per_tournament = 10
         
-        # Challonge API
-        self.challonge_api_key = os.getenv("CHALLONGE_API_KEY", "")
+        # Challonge OAuth2 API
+        self.challonge_client_id = os.getenv("CHALLONGE_CLIENT_ID", "")
+        self.challonge_client_secret = os.getenv("CHALLONGE_CLIENT_SECRET", "")
         self.challonge_username = os.getenv("CHALLONGE_USERNAME", "")
 
 

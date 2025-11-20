@@ -765,6 +765,30 @@ async def create_team_final(callback: CallbackQuery, state: FSMContext):
             await state.clear()
             return
         
+        # Проверяем глобальную блокировку капитана
+        is_globally_blocked = await TeamRepository.is_captain_globally_blocked(user.id)
+        if is_globally_blocked:
+            await callback.answer(
+                "❌ Вы не можете создавать команды!\n\n"
+                "Ваш аккаунт заблокирован администрацией.\n"
+                "Для получения информации обратитесь к администраторам.",
+                show_alert=True
+            )
+            await state.clear()
+            return
+        
+        # Проверяем блокировку на этом конкретном турнире
+        is_blocked_on_tournament = await TeamRepository.is_captain_blocked_on_tournament(user.id, tournament_id)
+        if is_blocked_on_tournament:
+            await callback.answer(
+                "❌ Вы не можете создать команду на этот турнир!\n\n"
+                "Ваша предыдущая команда была заблокирована на этом турнире.\n"
+                "Для получения информации обратитесь к администраторам.",
+                show_alert=True
+            )
+            await state.clear()
+            return
+        
         # Проверяем что у капитана еще нет команды на этот турнир
         is_already_registered = await TeamRepository.is_captain_registered(user.id, tournament_id)
         if is_already_registered:

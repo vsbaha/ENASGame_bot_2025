@@ -34,6 +34,12 @@ class AdminStates(StatesGroup):
     rejecting_team = State()
     blocking_team = State()
     searching_team = State()
+    editing_team_name = State()
+    editing_team_logo = State()
+    managing_roster = State()
+    adding_roster_player = State()
+    editing_roster_player_nickname = State()
+    editing_roster_player_game_id = State()
     
     # Управление пользователями
     selecting_user_to_manage = State()

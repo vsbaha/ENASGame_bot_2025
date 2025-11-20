@@ -39,7 +39,7 @@ async def manage_matches_redirect(callback: CallbackQuery, state: FSMContext):
         await safe_edit_message(callback.message, "❌ Ошибка загрузки матчей")
 
 
-def get_matches_keyboard(tournament_id: int, matches: list, back_callback: str = None):
+def get_matches_keyboard(tournament_id: int, matches: list, back_callback: str = None, tournament_format: str = 'single_elimination'):
     """Создание клавиатуры со списком матчей"""
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     
@@ -53,39 +53,61 @@ def get_matches_keyboard(tournament_id: int, matches: list, back_callback: str =
             )
         ])
     else:
-        # Группируем матчи по раундам
+        # Группируем матчи по раундам и bracket_type (для Double Elimination)
         matches_by_round = {}
         for match in matches:
             round_num = match.round_number
-            if round_num not in matches_by_round:
-                matches_by_round[round_num] = []
-            matches_by_round[round_num].append(match)
+            bracket_type = getattr(match, 'bracket_type', 'winner') or 'winner'
+            
+            # Ключ: (bracket_type, round_number) для разделения WB и LB
+            key = (bracket_type, round_num)
+            if key not in matches_by_round:
+                matches_by_round[key] = []
+            matches_by_round[key].append(match)
+        
+        # Сортируем: сначала Winner Bracket, потом Loser Bracket
+        sorted_keys = sorted(matches_by_round.keys(), key=lambda x: (0 if x[0] == 'winner' else 1, x[1]))
         
         # Выводим матчи по раундам
-        for round_num in sorted(matches_by_round.keys()):
-            round_matches = matches_by_round[round_num]
+        for key in sorted_keys:
+            bracket_type, round_num = key
+            round_matches = matches_by_round[key]
+            
+            # Фильтруем только матчи, где назначены обе команды
+            ready_matches = [m for m in round_matches if m.team1_id and m.team2_id]
+            
+            # Если нет готовых матчей, пропускаем раунд
+            if not ready_matches:
+                continue
             
             # Заголовок раунда
-            round_name = get_round_name(round_num, len(matches_by_round))
+            round_name = get_round_name(round_num, len(matches_by_round), tournament_format, bracket_type)
             buttons.append([
                 InlineKeyboardButton(
-                    text=f"═══ {round_name} ═══",
+                    text=f"━━━ {round_name} ━━━",
                     callback_data="noop"
                 )
             ])
             
             # Матчи раунда
-            for match in round_matches:
-                team1_name = match.team1.name if match.team1 else "TBD"
-                team2_name = match.team2.name if match.team2 else "TBD"
+            for match in ready_matches:
+                team1_name = match.team1.name if match.team1 else "?"
+                team2_name = match.team2.name if match.team2 else "?"
                 
                 # Статус матча
                 if match.status == MatchStatus.COMPLETED.value:
                     status_icon = "✅"
                     score = f"{match.team1_score or 0}:{match.team2_score or 0}"
                     text = f"{status_icon} {team1_name} {score} {team2_name}"
+                elif match.status == MatchStatus.CANCELLED.value:
+                    status_icon = "❌"
+                    text = f"{status_icon} {team1_name} — {team2_name}"
                 else:
-                    status_icon = "⏳"
+                    # Проверяем, назначены ли обе команды
+                    if match.team1_id and match.team2_id:
+                        status_icon = "🎮"  # Готов к игре
+                    else:
+                        status_icon = "⏳"  # Ожидание
                     text = f"{status_icon} {team1_name} vs {team2_name}"
                 
                 buttons.append([
@@ -112,36 +134,54 @@ def get_matches_keyboard(tournament_id: int, matches: list, back_callback: str =
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_round_name(round_number: int, total_rounds: int) -> str:
-    """Получение названия раунда"""
-    if round_number == total_rounds:
-        return "🏆 Финал"
-    elif round_number == total_rounds - 1:
-        return "🥉 Полуфинал"
-    elif round_number == total_rounds - 2:
-        return "🎯 Четвертьфинал"
-    else:
-        return f"Раунд {round_number}"
+def get_round_name(round_number: int, total_rounds: int, tournament_format: str = 'single_elimination', bracket_type: str = None) -> str:
+    """Получение названия раунда с учётом формата турнира"""
+    from utils.bracket_formatter import (
+        get_round_name_single_elimination,
+        get_round_name_double_elimination,
+        get_round_name_round_robin,
+        get_round_name_swiss
+    )
+    
+    if tournament_format == 'double_elimination':
+        return get_round_name_double_elimination(round_number, bracket_type)
+    elif tournament_format == 'round_robin':
+        return get_round_name_round_robin(round_number)
+    elif tournament_format == 'swiss':
+        return get_round_name_swiss(round_number, total_rounds)
+    else:  # single_elimination или по умолчанию
+        return get_round_name_single_elimination(round_number, total_rounds)
 
 
-def get_match_detail_keyboard(match_id: int, tournament_id: int):
+def get_match_detail_keyboard(match_id: int, tournament_id: int, match_status: str = None):
     """Клавиатура для детального просмотра матча"""
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    from database.models import MatchStatus
     
-    buttons = [
-        [
+    buttons = []
+    
+    # Кнопка ввода результата только для незавершенных матчей
+    if match_status != MatchStatus.COMPLETED.value:
+        buttons.append([
             InlineKeyboardButton(
-                text="✏️ Ввести результат",
+                text="📝 Ввести результат",
                 callback_data=f"admin:enter_result_{match_id}"
             )
-        ],
-        [
+        ])
+    else:
+        buttons.append([
             InlineKeyboardButton(
-                text="◀️ К списку матчей",
-                callback_data=f"admin:show_matches_{tournament_id}"
+                text="✏️ Изменить результат",
+                callback_data=f"admin:enter_result_{match_id}"
             )
-        ]
-    ]
+        ])
+    
+    buttons.append([
+        InlineKeyboardButton(
+            text="◀️ К списку матчей",
+            callback_data=f"admin:show_matches_{tournament_id}"
+        )
+    ])
     
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -200,6 +240,37 @@ async def display_tournament_matches(callback: CallbackQuery, tournament_id: int
         await safe_edit_message(callback.message, "❌ Турнир не найден")
         return
     
+    # Автосинхронизация матчей из Challonge (если турнир активен)
+    if tournament.challonge_id and tournament.status == TournamentStatus.IN_PROGRESS.value:
+        try:
+            challonge = ChallongeAPI(settings.challonge_client_id, settings.challonge_client_secret, settings.challonge_username)
+            challonge_matches = await challonge.get_matches(tournament.challonge_id)
+            
+            if challonge_matches:
+                # Получаем участников для маппинга
+                challonge_participants = await challonge.get_participants(tournament.challonge_id)
+                teams = await TeamRepository.get_teams_by_tournament(tournament_id, status=TeamStatus.APPROVED)
+                
+                # Создаем маппинг участников
+                participants_map = {}
+                for participant in challonge_participants:
+                    participant_name = participant.get("name")
+                    participant_id = str(participant.get("id"))
+                    for team in teams:
+                        if team.name == participant_name:
+                            participants_map[participant_id] = team.id
+                            break
+                
+                # Синхронизируем
+                await MatchRepository.sync_matches_from_challonge(
+                    tournament_id=tournament_id,
+                    challonge_matches=challonge_matches,
+                    participants_map=participants_map
+                )
+                logger.info(f"🔄 Автосинхронизация: обновлено {len(challonge_matches)} матчей")
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось синхронизировать матчи: {e}")
+    
     # Получаем незавершенные матчи
     pending_matches = await MatchRepository.get_pending_matches(tournament_id)
     
@@ -210,7 +281,8 @@ async def display_tournament_matches(callback: CallbackQuery, tournament_id: int
             reply_markup=get_matches_keyboard(
                 tournament_id, 
                 [], 
-                f"admin:manage_tournament_{tournament_id}"
+                f"admin:manage_tournament_{tournament_id}",
+                tournament.format
             )
         )
         return
@@ -224,14 +296,16 @@ async def display_tournament_matches(callback: CallbackQuery, tournament_id: int
         keyboard = get_matches_keyboard(
             tournament_id, 
             all_matches, 
-            f"admin:manage_tournament_{tournament_id}"
+            f"admin:manage_tournament_{tournament_id}",
+            tournament.format
         )
     else:
         text = f"🏆 <b>{tournament_name}</b>\n\n⏳ Активные матчи:"
         keyboard = get_matches_keyboard(
             tournament_id, 
             pending_matches, 
-            f"admin:manage_tournament_{tournament_id}"
+            f"admin:manage_tournament_{tournament_id}",
+            tournament.format
         )
     
     await safe_edit_message(callback.message, text, reply_markup=keyboard, parse_mode="HTML")
@@ -267,15 +341,22 @@ async def view_match_details(callback: CallbackQuery, state: FSMContext):
             return
         
         # Формируем текст
-        team1_name = match.team1.name if match.team1 else "TBD"
-        team2_name = match.team2.name if match.team2 else "TBD"
+        team1_name = match.team1.name if match.team1 else "?"
+        team2_name = match.team2.name if match.team2 else "?"
         
         # HTML escaping
         team1_name = team1_name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
         team2_name = team2_name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
         
-        text = f"🎮 <b>Матч #{match.match_number}</b>\n"
-        text += f"📍 Раунд {match.round_number}\n\n"
+        # Получаем название раунда
+        tournament = await TournamentRepository.get_by_id(match.tournament_id)
+        bracket_type = getattr(match, 'bracket_type', 'winner')
+        round_name = get_round_name(match.round_number, 1, tournament.format if tournament else 'single_elimination', bracket_type)
+        
+        text = f"🎮 <b>Детали матча</b>\n"
+        text += f"📍 {round_name}\n\n"
+        
+        text += f"━━━━━━━━━━━━━━━━━━\n\n"
         
         text += f"🔵 <b>{team1_name}</b>"
         if match.status == MatchStatus.COMPLETED.value:
@@ -287,18 +368,22 @@ async def view_match_details(callback: CallbackQuery, state: FSMContext):
             text += f" — <b>{match.team2_score or 0}</b>"
         text += "\n\n"
         
-        # Статус
+        text += f"━━━━━━━━━━━━━━━━━━\n\n"
+        
+        # Статус с иконками
         if match.status == MatchStatus.COMPLETED.value:
             winner_name = match.winner.name if match.winner else "Неизвестно"
             winner_name = winner_name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
             text += f"✅ <b>Завершен</b>\n"
             text += f"🏆 Победитель: <b>{winner_name}</b>"
-        elif match.status == MatchStatus.PENDING.value:
-            text += "⏳ <b>Ожидает результата</b>"
+        elif match.status == MatchStatus.CANCELLED.value:
+            text += "❌ <b>Отменен</b>"
+        elif match.team1_id and match.team2_id:
+            text += "🎮 <b>Готов к игре</b>"
         else:
-            text += f"📌 Статус: {match.status}"
+            text += "⏳ <b>Ожидание участников</b>"
         
-        keyboard = get_match_detail_keyboard(match_id, match.tournament_id)
+        keyboard = get_match_detail_keyboard(match_id, match.tournament_id, match.status)
         await safe_edit_message(callback.message, text, reply_markup=keyboard, parse_mode="HTML")
         
     except Exception as e:
@@ -322,9 +407,19 @@ async def start_enter_result(callback: CallbackQuery, state: FSMContext):
             return
         
         if not match.team1 or not match.team2:
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="◀️ К списку матчей",
+                        callback_data=f"admin:show_matches_{match.tournament_id}"
+                    )
+                ]
+            ])
             await safe_edit_message(
                 callback.message,
-                "⚠️ Невозможно ввести результат: не определены обе команды"
+                "⚠️ Невозможно ввести результат: не определены обе команды",
+                reply_markup=keyboard
             )
             return
         
@@ -335,10 +430,12 @@ async def start_enter_result(callback: CallbackQuery, state: FSMContext):
         team1_name = match.team1.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
         team2_name = match.team2.name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
         
-        text = f"🎮 <b>Ввод результата матча</b>\n\n"
-        text += f"🔵 {team1_name}\n"
-        text += f"🔴 {team2_name}\n\n"
-        text += f"Введите счет для <b>{team1_name}</b>:"
+        text = f"📝 <b>Ввод результата матча</b>\n\n"
+        text += f"━━━━━━━━━━━━━━━━━━\n\n"
+        text += f"🔵 <b>{team1_name}</b>\n"
+        text += f"🔴 <b>{team2_name}</b>\n\n"
+        text += f"━━━━━━━━━━━━━━━━━━\n\n"
+        text += f"Введите счет для команды <b>{team1_name}</b>:"
         
         await safe_edit_message(
             callback.message,
@@ -471,18 +568,28 @@ async def confirm_match_result(callback: CallbackQuery, state: FSMContext):
         
         # Обновляем результат в Challonge (если есть)
         if tournament.challonge_id and match.challonge_match_id:
-            challonge = ChallongeAPI(settings.challonge_api_key, settings.challonge_username)
+            challonge = ChallongeAPI(settings.challonge_client_id, settings.challonge_client_secret, settings.challonge_username)
             
-            # Получаем participant_id победителя из Challonge
+            # Получаем participant_id для обеих команд из Challonge
             participants = await challonge.get_participants(tournament.challonge_id)
             winner = await TeamRepository.get_by_id(winner_id)
             
+            # Определяем ID проигравшего
+            loser_id = match.team1_id if winner_id == match.team2_id else match.team2_id
+            loser = await TeamRepository.get_by_id(loser_id)
+            
+            # API v2.1 возвращает данные напрямую
             winner_participant_id = None
+            loser_participant_id = None
+            
             for participant in participants:
-                p_data = participant.get("participant", participant)
-                if p_data.get("name") == winner.name:
-                    winner_participant_id = str(p_data["id"])
-                    break
+                p_name = participant.get("name")
+                p_id = str(participant.get("id"))
+                
+                if p_name == winner.name:
+                    winner_participant_id = p_id
+                elif p_name == loser.name:
+                    loser_participant_id = p_id
             
             if winner_participant_id:
                 scores_csv = f"{team1_score}-{team2_score}"
@@ -490,11 +597,43 @@ async def confirm_match_result(callback: CallbackQuery, state: FSMContext):
                     tournament_id=tournament.challonge_id,
                     match_id=match.challonge_match_id,
                     winner_id=winner_participant_id,
-                    scores_csv=scores_csv
+                    scores_csv=scores_csv,
+                    loser_id=loser_participant_id
                 )
                 
                 if success:
-                    logger.info(f"Результат обновлен в Challonge: {scores_csv}")
+                    logger.info(f"✅ Результат обновлен в Challonge: {scores_csv}")
+                else:
+                    logger.warning(
+                        f"⚠️ Результат сохранен в боте, но не обновился в Challonge. "
+                        f"Обновите вручную: https://challonge.com/ru/{tournament.challonge_id}"
+                    )
+        
+        # Автосинхронизация после обновления результата
+        if tournament.challonge_id:
+            try:
+                challonge_matches = await challonge.get_matches(tournament.challonge_id)
+                if challonge_matches:
+                    challonge_participants = await challonge.get_participants(tournament.challonge_id)
+                    teams = await TeamRepository.get_teams_by_tournament(match.tournament_id, status=TeamStatus.APPROVED)
+                    
+                    participants_map = {}
+                    for participant in challonge_participants:
+                        participant_name = participant.get("name")
+                        participant_id = str(participant.get("id"))
+                        for team in teams:
+                            if team.name == participant_name:
+                                participants_map[participant_id] = team.id
+                                break
+                    
+                    await MatchRepository.sync_matches_from_challonge(
+                        tournament_id=match.tournament_id,
+                        challonge_matches=challonge_matches,
+                        participants_map=participants_map
+                    )
+                    logger.info("🔄 Автосинхронизация после обновления результата")
+            except Exception as e:
+                logger.warning(f"⚠️ Не удалось синхронизировать после обновления: {e}")
         
         # Очищаем состояние
         await state.clear()
@@ -543,7 +682,7 @@ async def sync_matches_from_challonge(callback: CallbackQuery, state: FSMContext
             return
         
         # Получаем матчи из Challonge
-        challonge = ChallongeAPI(settings.challonge_api_key, settings.challonge_username)
+        challonge = ChallongeAPI(settings.challonge_client_id, settings.challonge_client_secret, settings.challonge_username)
         challonge_matches = await challonge.get_matches(tournament.challonge_id)
         
         if not challonge_matches:
@@ -557,11 +696,11 @@ async def sync_matches_from_challonge(callback: CallbackQuery, state: FSMContext
         teams = await TeamRepository.get_teams_by_tournament(tournament_id, status=TeamStatus.APPROVED)
         
         # Создаем маппинг: challonge_participant_id -> team_id по именам
+        # В API v2.1 данные участников возвращаются напрямую без вложенности "participant"
         participants_map = {}
-        for participant_data in challonge_participants:
-            participant = participant_data.get("participant", participant_data)
+        for participant in challonge_participants:
             participant_name = participant.get("name")
-            participant_id = participant.get("id")
+            participant_id = str(participant.get("id"))  # Преобразуем в строку для совместимости
             
             # Ищем команду с таким же именем
             for team in teams:
