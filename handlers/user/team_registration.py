@@ -70,20 +70,25 @@ async def start_adding_main_players(callback: CallbackQuery, state: FSMContext):
     # Инициализируем список игроков
     await state.update_data(main_players=[], substitutes=[])
     
+    max_substitutes = data.get('max_substitutes', 0)
+    subs_text = f" + до {max_substitutes} запасных" if max_substitutes > 0 else ""
+    
     text = f"""➕ **Добавление игроков**
 
 **Шаг 4/5:** Основной состав (0/{max_players})
 
-Добавьте основных игроков вашей команды.
+⚠️ <b>ВАЖНО: Необходимо добавить РОВНО {max_players} игроков основного состава{subs_text}!</b>
 
-**Формат сообщения:**
+📝 **Формат добавления игрока:**
 `Никнейм | Game ID`
 
-**Пример:**
+💡 **Пример:**
 `ProPlayer | 123456789`
 
-Никнейм - игровое имя
-Game ID - внутриигровой ID"""
+<i>Где взять данные?</i>
+▪️ Никнейм - игровое имя в игре
+▪️ Game ID - уникальный ID игрока в игре
+   (находится в профиле игры)"""
     
     keyboard = [
         [
@@ -101,7 +106,7 @@ Game ID - внутриигровой ID"""
     ]
     
     await safe_edit_message(
-        callback.message, text, parse_mode="Markdown",
+        callback.message, text, parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
     )
     await state.set_state(UserStates.registering_team_adding_main_players)
@@ -112,24 +117,29 @@ async def start_adding_main_players_message(message: Message, state: FSMContext)
     """Начало добавления основных игроков (через message)"""
     data = await state.get_data()
     max_players = data.get('max_players', 5)
+    max_substitutes = data.get('max_substitutes', 0)
     
     # Инициализируем список игроков
     await state.update_data(main_players=[], substitutes=[])
+    
+    subs_text = f" + до {max_substitutes} запасных" if max_substitutes > 0 else ""
     
     text = f"""➕ **Добавление игроков**
 
 **Шаг 4/5:** Основной состав (0/{max_players})
 
-Добавьте основных игроков вашей команды.
+⚠️ <b>ВАЖНО: Необходимо добавить РОВНО {max_players} игроков основного состава{subs_text}!</b>
 
-**Формат сообщения:**
+📝 **Формат добавления игрока:**
 `Никнейм | Game ID`
 
-**Пример:**
+💡 **Пример:**
 `ProPlayer | 123456789`
 
-Никнейм - игровое имя
-Game ID - внутриигровой ID"""
+<i>Где взять данные?</i>
+▪️ Никнейм - игровое имя в игре
+▪️ Game ID - уникальный ID игрока в игре
+   (находится в профиле игры)"""
     
     keyboard = [
         [
@@ -147,7 +157,7 @@ Game ID - внутриигровой ID"""
     ]
     
     await message.answer(
-        text, parse_mode="Markdown",
+        text, parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
     )
     await state.set_state(UserStates.registering_team_adding_main_players)
@@ -363,12 +373,13 @@ async def start_adding_substitutes(callback: CallbackQuery, state: FSMContext):
 
 **Шаг 5/5:** Запасные игроки (0/{max_substitutes})
 
-Добавьте запасных игроков (опционально).
+💡 Запасные игроки добавляются <b>по желанию</b> (максимум {max_substitutes}).
+Они смогут заменить основных игроков во время турнира.
 
-**Формат сообщения:**
+📝 **Формат добавления:**
 `Никнейм | Game ID`
 
-**Пример:**
+💡 **Пример:**
 `SubPlayer | 987654321`"""
         
         keyboard = [
