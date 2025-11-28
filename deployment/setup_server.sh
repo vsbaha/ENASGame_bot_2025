@@ -31,7 +31,14 @@ print_success "Система обновлена"
 
 # 2. Установка необходимых пакетов
 print_info "Установка базовых пакетов..."
-apt install -y python3.11 python3.11-venv python3-pip git supervisor curl wget htop
+
+# Добавление PPA для Python 3.11
+print_info "Добавление репозитория для Python 3.11..."
+apt install -y software-properties-common
+add-apt-repository -y ppa:deadsnakes/ppa
+apt update
+
+apt install -y python3.11 python3.11-venv python3.11-dev python3-pip git supervisor curl wget htop
 print_success "Пакеты установлены"
 
 # 3. Создание пользователя для бота (опционально)
